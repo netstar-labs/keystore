@@ -143,7 +143,7 @@ environment once read, but the copy in the environment block it was started with
 readable by the same user (`ps eww`, `/proc/PID/environ`). The agent has no default ring:
 `-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required. The socket's directory must
 already exist, be yours and mode 0700, and the whole socket path must fit the operating system's
-limit (about 104 bytes on macOS, 108 on Linux) or the agent exits with `bind: invalid argument`.
+limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
 It stops — removing the socket — on SIGINT/SIGTERM, after `-ttl` (a hard stop), or after
 `-idle` without a successful request (any successful request counts, including a public-key
 fetch); `0` disables either and a negative value is refused. A second agent will not take

@@ -7,9 +7,9 @@
 - Created mode 0600 (under `umask 0177`, then `chmod`) in a directory owned by the agent's
   user with no group or other permissions; the agent refuses any other directory.
 - The socket's directory must already exist (the agent does not create it), and the whole
-  socket path must be shorter than the OS limit for a unix socket address (about 104 bytes on
-  macOS, 108 on Linux); a longer path fails with `listen unix …: bind: invalid argument`, and
-  the `<socket>.lock` file created just before is left behind.
+  socket path must fit the OS limit for a unix socket address: at most 103 bytes on macOS, 107
+  on Linux. A longer path is refused with an error naming the limit, before anything is
+  created.
 - The agent owns the path through an exclusive `flock` on `<socket>.lock`, held for its
   whole life. A second agent — even one starting at the same instant — refuses to start and
   never touches the socket. Without the lock held, a socket something still answers on is
