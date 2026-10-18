@@ -21,6 +21,10 @@ import (
 // digest manifest (e.g. sha256sum output) for anything larger.
 const maxMessage = agent.MaxPayload
 
+// maxInputFile bounds the small files read whole (a PEM key to import or to verify with,
+// a signature): each is well under 1 KiB.
+const maxInputFile = 64 << 10
+
 var errBadSig = errors.New("keystore: signature does not verify")
 
 func setupSign(fs *flag.FlagSet, s *stdio) func() error {
@@ -76,7 +80,7 @@ func setupVerify(fs *flag.FlagSet, s *stdio) func() error {
 		if err := need("sig", *sigFile); err != nil {
 			return err
 		}
-		pemB, err := os.ReadFile(*pubFile)
+		pemB, err := readLimited(*pubFile, maxInputFile)
 		if err != nil {
 			return err
 		}
@@ -121,7 +125,7 @@ func readMessage(s *stdio, in string) ([]byte, error) {
 }
 
 func readSignature(path string) ([]byte, error) {
-	b, err := os.ReadFile(path)
+	b, err := readLimited(path, maxInputFile)
 	if err != nil {
 		return nil, err
 	}
