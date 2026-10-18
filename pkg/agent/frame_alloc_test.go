@@ -41,3 +41,23 @@ func TestReadFrameMaxPayloadExact(t *testing.T) {
 		t.Fatalf("1 MiB frame minus a byte: err = %v, want io.ErrUnexpectedEOF", err)
 	}
 }
+
+// readFrame must consume exactly one frame: pipelined frames stay intact, and the end of
+// the stream after the last one is a clean io.EOF (a connection closed between requests).
+func TestReadFrameDoesNotOverRead(t *testing.T) {
+	var buf bytes.Buffer
+	writeFrame(&buf, 'S', []byte("first"))
+	writeFrame(&buf, 'P', nil)
+	for i, want := range []struct {
+		op byte
+		p  string
+	}{{'S', "first"}, {'P', ""}} {
+		op, p, err := readFrame(&buf)
+		if err != nil || op != want.op || string(p) != want.p {
+			t.Fatalf("frame %d = %c %q, %v; want %c %q", i, op, p, err, want.op, want.p)
+		}
+	}
+	if _, _, err := readFrame(&buf); err != io.EOF {
+		t.Errorf("after the last frame: %v, want io.EOF", err)
+	}
+}
