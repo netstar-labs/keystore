@@ -89,6 +89,10 @@ func (l *Listener) Close() error {
 // listener is closed: a second agent — even one racing this one — gets ErrInUse and never
 // touches the socket. An existing socket that something still answers on is also
 // ErrInUse; a stale one is removed; anything else at path is refused.
+//
+// The process umask is narrowed to 0177 for the duration of the bind, so the socket is
+// never reachable by others; files another goroutine of the embedding process creates in
+// that window get a narrower mode too.
 func Listen(path string) (*Listener, error) {
 	if err := checkDir(filepath.Dir(path)); err != nil {
 		return nil, err
