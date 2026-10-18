@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/netstar-labs/keystore/internal/keychain"
 	"github.com/netstar-labs/keystore/internal/term"
@@ -106,7 +107,7 @@ func establish(src sources, passfile string) ([]byte, error) {
 	if len(pw) == 0 {
 		return nil, ErrEmpty
 	}
-	if len([]rune(string(pw))) < MinLen {
+	if utf8.RuneCount(pw) < MinLen { // counted in place: string(pw) would copy the passphrase where clear() cannot reach
 		clear(pw)
 		return nil, ErrTooShort
 	}
