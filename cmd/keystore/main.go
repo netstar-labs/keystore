@@ -63,9 +63,13 @@ func run(args []string, s *stdio) error {
 			continue
 		}
 		fs := flag.NewFlagSet("keystore "+v.name, flag.ContinueOnError)
-		fs.SetOutput(term.Writer(s.err)) // the flag package echoes an unknown flag name verbatim
+		// The flag package prints its error, an unknown flag name echoed verbatim (newlines
+		// included), straight to its output; keep that off the terminal and let report print
+		// the returned error cleaned. Usage text is ours: it goes to stderr.
+		fs.SetOutput(io.Discard)
 		runVerb := v.setup(fs, s)
 		fs.Usage = func() {
+			fs.SetOutput(s.err)
 			fmt.Fprintf(s.err, "keystore %s — %s\n\n", v.name, v.summary)
 			fs.PrintDefaults()
 		}

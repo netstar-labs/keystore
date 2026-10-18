@@ -393,6 +393,27 @@ func TestUnknownFlagNameIsInert(t *testing.T) {
 	assertInert(t, "usage error line", b.String())
 }
 
+// A newline inside an unknown flag name used to start a new line of the flag package's
+// own message, so a name beginning with '-' could forge a whole "keystore: verified" line.
+func TestNewlineInFlagNameCannotForgeALine(t *testing.T) {
+	_, errOut, err := cli(t, "sign", "-a\nkeystore: verified: SHA256:FORGED")
+	if err == nil || !isUsage(err) {
+		t.Fatalf("err = %v, want a usage error", err)
+	}
+	var b bytes.Buffer
+	report(&b, err)
+	for _, text := range []string{errOut, b.String()} {
+		for _, line := range strings.Split(text, "\n") {
+			if strings.HasPrefix(line, "keystore: verified") {
+				t.Errorf("forged line %q in %q", line, text)
+			}
+		}
+	}
+	if !strings.Contains(errOut, "-keystore") {
+		t.Errorf("usage text no longer printed for a mistyped flag: %q", errOut)
+	}
+}
+
 func TestReportExitCodesAndCleaning(t *testing.T) {
 	for _, tc := range []struct {
 		err  error

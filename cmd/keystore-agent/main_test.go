@@ -13,11 +13,17 @@ import (
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/pkg/agent"
 	"github.com/netstar-labs/keystore/pkg/keystore"
+	"os/exec"
+	"unicode"
 )
 
 const pass = "agent test passphrase"
 
 func TestMain(m *testing.M) {
+	if os.Getenv("KEYSTORE_AGENT_RUN_MAIN") == "1" { // the test re-executes itself as the command
+		main()
+		return
+	}
 	kdf.Default = kdf.Cost{Mem: kdf.MinMem, Time: 1, Par: 1}
 	os.Unsetenv("KEYSTORE_KEYCHAIN")
 	os.Exit(m.Run())
@@ -110,5 +116,35 @@ func TestNegativeLifetimeFlagsRefused(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "negative") {
 			t.Errorf("%s -1s: err = %v, want a refusal naming a negative value", flagName, err)
 		}
+	}
+}
+
+// main prints errors and flag problems to the terminal: whatever an operator's script
+// passed (a flag name, a ring path) must not be able to act on it or forge a line.
+func TestMainOutputIsInert(t *testing.T) {
+	const forged = "keystore: verified: SHA256:FORGED"
+	for name, args := range map[string][]string{
+		"unknown flag":   {"-a\n" + forged},
+		"ring path":      {"-keystore", "/nonexistent/x\x1b[31m\r" + forged, "-sock", "/tmp/x.sock"},
+		"unknown flag 2": {"-\x1b]0;t\x07\r" + forged},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], args...)
+			cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1", "KEYSTORE_PASSPHRASE=")
+			out, _ := cmd.CombinedOutput()
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.HasPrefix(line, "keystore: verified") {
+					t.Errorf("forged line in output: %q", out)
+				}
+			}
+			for _, r := range string(out) {
+				if r != '\n' && r != '\t' && !unicode.IsPrint(r) {
+					t.Fatalf("terminal-active rune %U in output %q", r, out)
+				}
+			}
+			if !strings.Contains(string(out), "keystore-agent:") {
+				t.Errorf("no error line printed: %q", out)
+			}
+		})
 	}
 }

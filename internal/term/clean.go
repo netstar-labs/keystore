@@ -1,7 +1,6 @@
 package term
 
 import (
-	"io"
 	"strings"
 	"unicode"
 )
@@ -19,24 +18,4 @@ func scrub(r rune) rune {
 		return r
 	}
 	return ' '
-}
-
-// Writer returns a writer that Cleans what is written to w, keeping newlines and tabs.
-// It is for output the tool does not format itself, such as the flag package's errors,
-// which echo an unknown flag name verbatim.
-func Writer(w io.Writer) io.Writer { return cleanWriter{w} }
-
-type cleanWriter struct{ w io.Writer }
-
-func (c cleanWriter) Write(p []byte) (int, error) {
-	out := strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
-			return r
-		}
-		return scrub(r)
-	}, string(p))
-	if _, err := io.WriteString(c.w, out); err != nil {
-		return 0, err
-	}
-	return len(p), nil
 }

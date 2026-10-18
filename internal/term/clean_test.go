@@ -1,7 +1,6 @@
 package term
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 	"unicode"
@@ -31,16 +30,5 @@ func TestCleanKeepsReadableNamesAndNeutralisesTheRest(t *testing.T) {
 		if !strings.HasPrefix(got, "a") {
 			t.Errorf("%s: Clean(%q) = %q lost the readable part", name, in, got)
 		}
-	}
-}
-
-func TestWriterCleansButKeepsLayout(t *testing.T) {
-	var b bytes.Buffer
-	n, err := Writer(&b).Write([]byte("flag provided but not defined: -\x1b[31mX\r\n  -in\tFILE\n"))
-	if err != nil || n != len("flag provided but not defined: -\x1b[31mX\r\n  -in\tFILE\n") {
-		t.Fatalf("Write = %d, %v", n, err)
-	}
-	if got, want := b.String(), "flag provided but not defined: - [31mX \n  -in\tFILE\n"; got != want {
-		t.Errorf("Writer output %q, want %q", got, want)
 	}
 }

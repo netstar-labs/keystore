@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -39,7 +40,12 @@ func main() {
 
 func run(args []string) error {
 	fs := flag.NewFlagSet("keystore-agent", flag.ContinueOnError)
-	fs.SetOutput(term.Writer(os.Stderr))
+	fs.SetOutput(io.Discard) // an unknown flag name is echoed verbatim; main prints the error cleaned
+	fs.Usage = func() {
+		fs.SetOutput(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Usage of keystore-agent:")
+		fs.PrintDefaults()
+	}
 	ring := fs.String("keystore", os.Getenv("KEYSTORE_FILE"), "ring file (env KEYSTORE_FILE)")
 	id := fs.String("id", "", "signing key id (default: the ring's current key)")
 	sock := fs.String("sock", "", "unix socket path; its directory must be 0700 and yours (required)")
