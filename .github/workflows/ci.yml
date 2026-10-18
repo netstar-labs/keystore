@@ -1,6 +1,8 @@
 name: ci
 on: { pull_request: {}, push: { branches: [main] } }
 
+permissions: { contents: read }
+
 # Analyzer versions are pinned; bump them deliberately.
 env:
   GOWORK: "off"
@@ -25,8 +27,13 @@ jobs:
       - run: go run "$GOVULNCHECK" ./...
       # Library API (Keystore.Path) is legitimately unreached from the binaries.
       - run: test -z "$(go run "$DEADCODE" ./... | grep -v 'Keystore.Path')"
-      - if: runner.os == 'Linux' && hashFiles('examples/agent-service/keystore-agent.service') != ''
-        run: systemd-analyze verify --user examples/agent-service/keystore-agent.service 2>&1 | grep -v 'Executable path' || true
+      # systemd-analyze exits 0 for an unknown key or a bad value (it only warns), so the
+      # output is checked too; the unit's ExecStart needs something executable to exist.
+      - run: |
+          d=$(mktemp -d); chmod 700 "$d"; export XDG_RUNTIME_DIR=$d
+          sudo install -m755 /bin/true /usr/local/bin/keystore-agent
+          out=$(systemd-analyze verify --user examples/agent-service/keystore-agent.service 2>&1) || { echo "$out"; exit 1; }
+          if grep -Eqi 'unknown (key|section)|failed to parse|ignoring' <<<"$out"; then echo "$out"; exit 1; fi
 
   # macOS: LOCAL_PEERCRED, the keychain lookup, and the launchd plist.
   ci-macos:
