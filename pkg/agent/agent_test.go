@@ -182,6 +182,8 @@ func TestUnknownOpRejected(t *testing.T) {
 	}
 }
 
+// Real timers (no fake clock): the integration check that Server wires time.AfterFunc
+// correctly; the expiry semantics are asserted on a fake clock in clock_test.go.
 func TestTTLExpiry(t *testing.T) {
 	r := start(t, func(s *Server) { s.TTL = 200 * time.Millisecond })
 	if _, err := Dial(r.sock); err != nil {
@@ -203,6 +205,7 @@ func TestTTLExpiry(t *testing.T) {
 	}
 }
 
+// Real timers; see TestTTLExpiry.
 func TestIdleExpiryResetByUse(t *testing.T) {
 	r := start(t, func(s *Server) { s.Idle = 300 * time.Millisecond })
 	c, _ := Dial(r.sock)
@@ -282,45 +285,6 @@ func TestCloseBeforeServe(t *testing.T) {
 	}
 	if _, err := os.Lstat(sock); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("socket left behind")
-	}
-}
-
-// Regression (review F1): a client that keeps one connection busy must not keep the
-// agent — and its key — alive past TTL. Expiry closes open connections.
-func TestTTLNotExtendedByPersistentConnection(t *testing.T) {
-	r := start(t, func(s *Server) { s.TTL = 300 * time.Millisecond })
-	conn, err := net.Dial("unix", r.sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	deadline := time.Now().Add(3 * time.Second)
-	signedAfterTTL := 0
-	start := time.Now()
-	for time.Now().Before(deadline) {
-		if writeFrame(conn, OpSign, []byte("keepalive")) != nil {
-			break
-		}
-		conn.SetReadDeadline(time.Now().Add(time.Second))
-		st, _, err := readFrame(conn)
-		if err != nil || st != StatusOK {
-			break
-		}
-		if time.Since(start) > 500*time.Millisecond {
-			signedAfterTTL++
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if signedAfterTTL > 0 {
-		t.Fatalf("agent signed %d requests after its TTL on a persistent connection", signedAfterTTL)
-	}
-	select {
-	case err := <-r.done:
-		if !errors.Is(err, ErrExpired) {
-			t.Fatalf("Serve = %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Serve still running after TTL with a persistent connection")
 	}
 }
 
