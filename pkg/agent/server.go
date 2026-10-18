@@ -48,7 +48,8 @@ type Server struct {
 	// Log, if set, receives one line per rejected connection or error. Never secrets.
 	Log func(format string, args ...any)
 
-	uidOf func(*net.UnixConn) (int, error) // peer uid lookup; tests replace it
+	uidOf  func(*net.UnixConn) (int, error)       // peer uid lookup; tests replace it
+	accept func(*Listener) (*net.UnixConn, error) // tests inject accept errors
 
 	mu      sync.Mutex
 	ln      *Listener
@@ -64,7 +65,8 @@ func NewServer(signer crypto.Signer) (*Server, error) {
 	if !ok {
 		return nil, errors.New("keystore agent: signer is not ed25519")
 	}
-	return &Server{signer: signer, pub: pub, IOTimeout: 5 * time.Second, uidOf: peercred.UID}, nil
+	return &Server{signer: signer, pub: pub, IOTimeout: 5 * time.Second, uidOf: peercred.UID,
+		accept: (*Listener).AcceptUnix}, nil
 }
 
 // Listener is an agent socket plus the exclusive lock that owns its path.
@@ -154,7 +156,9 @@ func checkDir(dir string) error {
 
 // Serve answers requests on ln until Close, or until TTL or Idle expires (then it
 // returns ErrExpired). A negative TTL or Idle is refused with ErrNegativeLifetime and ln
-// is closed. The socket is removed when the listener closes.
+// is closed. Running out of descriptors on accept is retried; any other accept error
+// stops the agent, closing every open connection. The socket is removed when the
+// listener closes.
 func (s *Server) Serve(ln *Listener) error {
 	if s.TTL < 0 || s.Idle < 0 { // timers arm only for values > 0: a negative one would mean "no limit"
 		ln.Close()
@@ -176,7 +180,7 @@ func (s *Server) Serve(ln *Listener) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
-		c, err := ln.AcceptUnix()
+		c, err := s.accept(ln)
 		if err != nil {
 			s.mu.Lock()
 			expired := s.expired
@@ -187,6 +191,12 @@ func (s *Server) Serve(ln *Listener) error {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
+			if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) {
+				s.logf("accept: %v; retrying", err) // out of descriptors is transient; the key stays served
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			s.Close() // a dead accept loop must not leave the socket, the connections or the key behind
 			return err
 		}
 		if !s.track(c) {

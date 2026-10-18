@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,5 +118,43 @@ func TestSignVerifyLimits(t *testing.T) {
 	os.WriteFile(junk, []byte("not a signature"), 0o644)
 	if _, _, err := cliIn(t, "m", "verify", "-pub", pub, "-sig", junk); err == nil || errors.Is(err, errBadSig) {
 		t.Fatalf("malformed signature file: %v", err)
+	}
+}
+
+// verify read its -pub and -sig files whole, unlike every other input (a planted 1 GiB
+// file cost ~1-2 GB of memory). A PEM public key or a signature is a few hundred bytes.
+// The boundary is a literal 64 KiB so the test does not move with the constant: a file of
+// exactly that size (a valid key padded with newlines) verifies, one byte more is refused.
+func TestVerifyInputFilesAreCapped(t *testing.T) {
+	r, pub, msg := signFixture(t)
+	dir := t.TempDir()
+	pad := func(src string, size int) string {
+		b, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b = append(b, bytes.Repeat([]byte("\n"), size-len(b))...)
+		p := filepath.Join(dir, fmt.Sprintf("padded-%d-%s", size, filepath.Base(src)))
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	sig := filepath.Join(dir, "m.sig")
+	if _, _, err := cli(t, "sign", "-keystore", r, "-in", msg, "-o", sig); err != nil {
+		t.Fatal(err)
+	}
+	const limit = 64 << 10
+	if _, _, err := cli(t, "verify", "-pub", pad(pub, limit), "-sig", pad(sig, limit), "-in", msg); err != nil {
+		t.Errorf("inputs of exactly 64 KiB were refused: %v", err)
+	}
+	for name, args := range map[string][]string{
+		"-pub": {"-pub", pad(pub, limit+1), "-sig", sig},
+		"-sig": {"-pub", pub, "-sig", pad(sig, limit+1)},
+	} {
+		_, _, err := cli(t, append([]string{"verify", "-in", msg}, args...)...)
+		if err == nil || !strings.Contains(err.Error(), "too large") {
+			t.Errorf("oversize %s: %v", name, err)
+		}
 	}
 }

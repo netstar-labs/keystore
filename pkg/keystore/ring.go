@@ -26,6 +26,10 @@ import (
 	"github.com/netstar-labs/keystore/internal/seal"
 )
 
+// errEmptyPass is the one refusal of an empty passphrase, shared by every path that
+// would encrypt under one. Unexported: callers cannot usefully act on it beyond failing.
+var errEmptyPass = errors.New("keystore: empty passphrase")
+
 // Keystore is an open ring file.
 type Keystore struct {
 	path string
@@ -73,7 +77,9 @@ func (k *Keystore) CurrentID() string { return k.f.Current }
 // Add generates a new Ed25519 key under id, encrypts it with passphrase and returns its
 // public key. The first signing key in a ring becomes current. If the ring already has
 // entries, passphrase must unlock them (ErrPassphraseMismatch otherwise); this is checked
-// before the key is generated.
+// before the key is generated. An empty passphrase is refused (as are all the methods
+// that add an entry); a ring that already holds entries under one is recovered with
+// ChangePassphrase.
 func (k *Keystore) Add(id string, passphrase []byte) (ed25519.PublicKey, error) {
 	var pub ed25519.PublicKey
 	err := k.addSigning(id, passphrase, func() (ed25519.PrivateKey, error) {
@@ -120,8 +126,12 @@ func (k *Keystore) addSigning(id string, passphrase []byte, key func() (ed25519.
 
 // add is the one path by which an encrypted entry enters a ring: validate the id, then
 // under the lock refuse a duplicate, prove the passphrase against the ring, and only
-// then produce the material, encrypt it and append it.
+// then produce the material, encrypt it and append it. An empty passphrase is refused
+// first: it would create a ring that opens with no secret at all.
 func (k *Keystore) add(id, kind string, passphrase []byte, material func() (pub, plaintext []byte, err error)) error {
+	if len(passphrase) == 0 {
+		return errEmptyPass
+	}
 	if err := ids.Valid(id); err != nil {
 		return err
 	}
@@ -154,7 +164,7 @@ func (k *Keystore) add(id, kind string, passphrase []byte, material func() (pub,
 // any fails, nothing is written and the error is ErrBadPass.
 func (k *Keystore) ChangePassphrase(oldPass, newPass []byte) error {
 	if len(newPass) == 0 {
-		return errors.New("keystore: empty new passphrase")
+		return errEmptyPass
 	}
 	return k.update(func(f *ringfile.File) error {
 		if len(f.Entries) == 0 {

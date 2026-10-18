@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/netstar-labs/keystore/internal/kdf"
+	"github.com/netstar-labs/keystore/internal/ringfile"
 )
 
 var pass = []byte("correct horse battery")
@@ -364,20 +365,31 @@ func TestImportInconsistentKey(t *testing.T) {
 	bad := append(ed25519.PrivateKey(nil), good...)
 	copy(bad[32:], other) // seed of good, public half of another key
 
-	for _, seeded := range []bool{false, true} {
-		k, path := newRing(t)
-		if seeded {
-			if _, err := k.Add("a", pass); err != nil {
-				t.Fatal(err)
+	// One flipped bit anywhere in the 64 bytes makes the halves disagree, including the
+	// first and last byte of the public half (a comparison that stops one byte short would
+	// miss them).
+	variants := map[string]ed25519.PrivateKey{"whole public half": bad}
+	for _, i := range []int{0, 31, 32, 63} {
+		v := append(ed25519.PrivateKey(nil), good...)
+		v[i] ^= 1
+		variants[fmt.Sprintf("flip byte %d", i)] = v
+	}
+	for name, key := range variants {
+		for _, seeded := range []bool{false, true} {
+			k, path := newRing(t)
+			if seeded {
+				if _, err := k.Add("a", pass); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		before, _ := os.ReadFile(path)
-		if err := k.Import("bad", bad, pass); err == nil {
-			t.Fatalf("seeded=%v: Import accepted a key whose public half is not its seed's", seeded)
-		}
-		after, _ := os.ReadFile(path)
-		if !bytes.Equal(before, after) {
-			t.Fatalf("seeded=%v: refused Import changed the ring file", seeded)
+			before, _ := os.ReadFile(path)
+			if err := k.Import("bad", key, pass); err == nil {
+				t.Fatalf("%s, seeded=%v: Import accepted a key whose halves disagree", name, seeded)
+			}
+			after, _ := os.ReadFile(path)
+			if !bytes.Equal(before, after) {
+				t.Fatalf("%s, seeded=%v: refused Import changed the ring file", name, seeded)
+			}
 		}
 	}
 }
@@ -398,5 +410,105 @@ func TestImportConsistentKeys(t *testing.T) {
 		if err != nil || !ed25519.Verify(priv.Public().(ed25519.PublicKey), []byte("m"), sig) {
 			t.Fatalf("%s: imported key does not sign verifiably: %v", id, err)
 		}
+	}
+}
+
+// An empty passphrase would make a ring any copy-holder can open; every path that
+// establishes one refuses it, as ChangePassphrase does, and leaves the file untouched.
+func TestEmptyPassphraseRefused(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	adds := map[string]func(k *Keystore, p []byte) error{
+		"Add":          func(k *Keystore, p []byte) error { _, err := k.Add("n", p); return err },
+		"AddSecret":    func(k *Keystore, p []byte) error { _, err := k.AddSecret("n", p); return err },
+		"Import":       func(k *Keystore, p []byte) error { return k.Import("n", priv, p) },
+		"ImportSecret": func(k *Keystore, p []byte) error { return k.ImportSecret("n", []byte("s"), p) },
+	}
+	for name, add := range adds {
+		for _, empty := range [][]byte{nil, {}} {
+			for _, seeded := range []bool{false, true} {
+				k, path := newRing(t)
+				if seeded {
+					if _, err := k.Add("a", pass); err != nil {
+						t.Fatal(err)
+					}
+				}
+				before, _ := os.ReadFile(path)
+				err := add(k, empty)
+				if err == nil || errors.Is(err, ErrPassphraseMismatch) {
+					t.Fatalf("%s(%#v, seeded=%v) = %v, want the empty-passphrase error", name, empty, seeded, err)
+				}
+				after, _ := os.ReadFile(path)
+				if !bytes.Equal(before, after) {
+					t.Fatalf("%s(%#v, seeded=%v) changed the ring file", name, empty, seeded)
+				}
+			}
+		}
+	}
+	// It is the same refusal ChangePassphrase gives.
+	k, _ := newRing(t)
+	k.Add("a", pass)
+	_, e1 := k.Add("b", nil)
+	e2 := k.ChangePassphrase(pass, nil)
+	if e1 == nil || e2 == nil || !errors.Is(e1, errEmptyPass) || !errors.Is(e2, errEmptyPass) {
+		t.Fatalf("Add error %v, ChangePassphrase error %v: both want errEmptyPass", e1, e2)
+	}
+}
+
+// Unlocking with an empty passphrase already fails on a real ring, so the read paths
+// need no check of their own.
+func TestEmptyPassphraseDoesNotUnlock(t *testing.T) {
+	k, _ := newRing(t)
+	k.Add("a", pass)
+	k.AddSecret("s", pass)
+	for _, empty := range [][]byte{nil, {}} {
+		if _, err := k.Signer("a", empty); !errors.Is(err, ErrBadPass) {
+			t.Fatalf("Signer(empty) = %v, want ErrBadPass", err)
+		}
+		if _, err := k.Secret("s", empty); !errors.Is(err, ErrBadPass) {
+			t.Fatalf("Secret(empty) = %v, want ErrBadPass", err)
+		}
+	}
+	if _, err := k.Signer("a", pass); err != nil {
+		t.Fatalf("real passphrase no longer unlocks: %v", err)
+	}
+}
+
+// A ring made before the refusal existed can hold entries under the empty passphrase.
+// The refusal must not trap its owner: they can still unlock it, and passwd (whose old
+// passphrase may be empty) moves it to a real passphrase.
+func TestLegacyEmptyPassphraseRingCanBeRecovered(t *testing.T) {
+	k, _ := newRing(t)
+	e, err := encrypt("old", KindSecret, nil, []byte("payload"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.update(func(f *ringfile.File) error { f.Entries = append(f.Entries, e); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := k.Secret("old", nil); err != nil || string(got) != "payload" {
+		t.Fatalf("legacy ring does not unlock with the empty passphrase: %q, %v", got, err)
+	}
+	if _, err := k.Add("n", pass); !errors.Is(err, ErrPassphraseMismatch) {
+		t.Fatalf("Add to a legacy ring under a real passphrase = %v, want ErrPassphraseMismatch", err)
+	}
+	if err := k.ChangePassphrase(nil, pass); err != nil {
+		t.Fatalf("cannot recover a legacy empty-passphrase ring: %v", err)
+	}
+	if got, err := k.Secret("old", pass); err != nil || string(got) != "payload" {
+		t.Fatalf("after passwd: %q, %v", got, err)
+	}
+	if _, err := k.Secret("old", nil); !errors.Is(err, ErrBadPass) {
+		t.Fatalf("empty passphrase still unlocks after passwd: %v", err)
+	}
+}
+
+// The refusal is of EMPTY passphrases only: a single byte, even NUL, is a passphrase.
+func TestOneBytePassphraseIsNotEmpty(t *testing.T) {
+	k, _ := newRing(t)
+	if _, err := k.Add("a", []byte{0}); err != nil {
+		t.Fatalf("one NUL byte refused: %v", err)
+	}
+	if _, err := k.AddSecret("s", []byte{0}); err != nil {
+		t.Fatalf("second entry under the same one-byte passphrase refused: %v", err)
 	}
 }
