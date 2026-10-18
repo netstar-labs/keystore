@@ -107,7 +107,8 @@ func establish(src sources, passfile string) ([]byte, error) {
 	if len(pw) == 0 {
 		return nil, ErrEmpty
 	}
-	if utf8.RuneCount(pw) < MinLen { // counted in place: string(pw) would copy the passphrase where clear() cannot reach
+	// Counted in place: string(pw) would copy the passphrase where clear() cannot reach.
+	if utf8.RuneCount(pw) < MinLen {
 		clear(pw)
 		return nil, ErrTooShort
 	}

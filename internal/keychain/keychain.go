@@ -27,7 +27,7 @@ var (
 // read by security as an option.
 func checkService(service string) error {
 	if err := ids.Valid(service); err != nil {
-		return fmt.Errorf("keystore: keychain service: %w", err)
+		return fmt.Errorf("%w; a keychain service name follows the same rule", err)
 	}
 	return nil
 }
