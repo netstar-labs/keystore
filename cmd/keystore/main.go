@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode"
 )
 
 // Set by the build: -ldflags "-X main.version=… -X main.build=…".
@@ -88,9 +89,16 @@ func isUsage(err error) bool {
 	return errors.As(err, &u)
 }
 
-// oneLine keeps failure output to a single line.
+// oneLine keeps failure output to a single line, and free of control characters: the
+// message can echo a file name or OS error text the operator's script took from elsewhere,
+// and an escape sequence or carriage return there must not act on the terminal.
 func oneLine(err error) string {
-	msg := strings.ReplaceAll(err.Error(), "\n", " ")
+	msg := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, err.Error())
 	if !strings.HasPrefix(msg, "keystore") {
 		msg = "keystore: " + msg
 	}

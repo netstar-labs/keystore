@@ -11,9 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	"fmt"
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/internal/passphrase"
 	"github.com/netstar-labs/keystore/pkg/keystore"
+	"unicode"
 )
 
 var update = flag.Bool("update", false, "rewrite docs/reference.md")
@@ -297,5 +299,21 @@ func TestImportKeySizeCap(t *testing.T) {
 	os.WriteFile(big, bytes.Repeat([]byte("A"), 128<<10), 0o600)
 	if _, _, err := cli(t, "import", "-keystore", r, "-id", "x", "-key", big); err == nil || !strings.Contains(err.Error(), "too large") {
 		t.Fatalf("oversize key file: %v", err)
+	}
+}
+
+// A file name the operator's script passes through can carry terminal control sequences;
+// the failure line that echoes it must not let them act (recolour, retitle, or CR back
+// over the line start to forge a "keystore: verified" report).
+func TestOneLineNeutralisesControlCharacters(t *testing.T) {
+	name := "x\x1b[31mRED\x1b]0;pwned\x07\rkeystore: verified: SHA256:fake\x7f\u009b"
+	got := oneLine(fmt.Errorf("open %s: no such file or directory", name))
+	for _, r := range got {
+		if unicode.IsControl(r) {
+			t.Fatalf("control character %U survives in %q", r, got)
+		}
+	}
+	if !strings.Contains(got, "no such file or directory") || !strings.HasPrefix(got, "keystore: ") {
+		t.Errorf("message mangled: %q", got)
 	}
 }
