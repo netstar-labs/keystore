@@ -16,12 +16,13 @@ import (
 // goroutine; the channels below are the only synchronisation the tests need with the
 // server's watch goroutine.
 type fakeClock struct {
-	mu     sync.Mutex
-	now    time.Duration
-	timers []*fakeTimer
-	fired  int
-	armed  chan struct{} // one send per afterFunc call
-	resets chan struct{} // one send per Reset, i.e. per request the server counted as use
+	mu      sync.Mutex
+	now     time.Duration
+	timers  []*fakeTimer
+	fired   int
+	armed   chan struct{} // one send per afterFunc call
+	resets  chan struct{} // one send per Reset, i.e. per request the server counted as use
+	stopped chan struct{} // one send per Stop (watch stops its timers just after Serve returns)
 }
 
 type fakeTimer struct {
@@ -32,7 +33,7 @@ type fakeTimer struct {
 }
 
 func newFakeClock() *fakeClock {
-	return &fakeClock{armed: make(chan struct{}, 8), resets: make(chan struct{}, 64)}
+	return &fakeClock{armed: make(chan struct{}, 8), resets: make(chan struct{}, 64), stopped: make(chan struct{}, 8)}
 }
 
 func (c *fakeClock) afterFunc(d time.Duration, f func()) timer {
@@ -58,6 +59,7 @@ func (t *fakeTimer) Stop() bool {
 	defer t.c.mu.Unlock()
 	was := t.active
 	t.active = false
+	t.c.stopped <- struct{}{}
 	return was
 }
 
@@ -329,6 +331,15 @@ func TestCloseBeforeExpiryIsCleanAndDisarmsTimers(t *testing.T) {
 	}
 	if err := served(t, r); err != nil {
 		t.Fatalf("Serve after Close = %v, want nil", err)
+	}
+	// Serve returns before watch has run its deferred Stops; wait for both, as time
+	// passing in that gap would (harmlessly) fire expire on a server that is already down.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-clk.stopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("watch did not stop its timers after Serve returned")
+		}
 	}
 	clk.Advance(time.Hour)
 	if n := clk.Fired(); n != 0 {
