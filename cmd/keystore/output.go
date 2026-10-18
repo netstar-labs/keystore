@@ -40,7 +40,7 @@ func emit(s *stdio, path string, force bool, b []byte, form string) error {
 	if err := writeSecretFile(path, b, force); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.err, "wrote %s (%s, 0600)\n", path, form)
+	fmt.Fprintf(s.err, "wrote %s (%s, 0600)\n", term.Clean(path), form)
 	return nil
 }
 

@@ -3,7 +3,7 @@
 *Review of an existing, working private encrypted-keyring implementation (about 530 lines of Go
 plus CLI and a signing agent) that this project starts from. Read from source and docs; the
 package's own tests were run and pass. Findings below are inputs to [scope.md](scope.md) and
-the [build prompt](../plan/build-prompt.md); each says what to keep, change or add.*
+[decisions.md](decisions.md); each says what to keep, change or add.*
 
 ## What it is
 

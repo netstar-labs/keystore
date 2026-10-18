@@ -12,6 +12,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/netstar-labs/keystore/internal/term"
 )
 
 // Set by the build: -ldflags "-X main.version=… -X main.build=…".
@@ -23,15 +25,22 @@ func (e usageError) Error() string { return string(e) }
 
 func main() {
 	err := run(os.Args[1:], &stdio{in: os.Stdin, out: os.Stdout, err: os.Stderr, inFile: os.Stdin, outFile: os.Stdout})
+	os.Exit(report(os.Stderr, err))
+}
+
+// report prints err to w and returns the process exit status: 0 for success and help, 2
+// for a usage error, 1 for anything else. Messages are cleaned: they can echo input the
+// operator's script took from elsewhere.
+func report(w io.Writer, err error) int {
 	switch {
-	case err == nil:
-	case errors.Is(err, flag.ErrHelp):
+	case err == nil, errors.Is(err, flag.ErrHelp):
+		return 0
 	case isUsage(err):
-		fmt.Fprintln(os.Stderr, "keystore:", err)
-		os.Exit(2)
+		fmt.Fprintln(w, "keystore:", term.Clean(err.Error()))
+		return 2
 	default:
-		fmt.Fprintln(os.Stderr, oneLine(err))
-		os.Exit(1)
+		fmt.Fprintln(w, oneLine(err))
+		return 1
 	}
 }
 
@@ -54,9 +63,13 @@ func run(args []string, s *stdio) error {
 			continue
 		}
 		fs := flag.NewFlagSet("keystore "+v.name, flag.ContinueOnError)
-		fs.SetOutput(s.err)
+		// The flag package prints its error, an unknown flag name echoed verbatim (newlines
+		// included), straight to its output; keep that off the terminal and let report print
+		// the returned error cleaned. Usage text is ours: it goes to stderr.
+		fs.SetOutput(io.Discard)
 		runVerb := v.setup(fs, s)
 		fs.Usage = func() {
+			fs.SetOutput(s.err)
 			fmt.Fprintf(s.err, "keystore %s — %s\n\n", v.name, v.summary)
 			fs.PrintDefaults()
 		}
@@ -88,9 +101,9 @@ func isUsage(err error) bool {
 	return errors.As(err, &u)
 }
 
-// oneLine keeps failure output to a single line.
+// oneLine keeps failure output to a single line, free of terminal-active characters.
 func oneLine(err error) string {
-	msg := strings.ReplaceAll(err.Error(), "\n", " ")
+	msg := term.Clean(err.Error())
 	if !strings.HasPrefix(msg, "keystore") {
 		msg = "keystore: " + msg
 	}
