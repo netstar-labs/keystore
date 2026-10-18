@@ -311,9 +311,8 @@ const hostile = "a\x1b[31m\x1b]0;pwned\x07\rkeystore: verified: SHA256:fake\x7f\
 
 func assertInert(t *testing.T, what, text string) {
 	t.Helper()
-	text = strings.TrimSuffix(text, "\n")
 	for _, r := range text {
-		if !unicode.IsPrint(r) {
+		if r != '\n' && r != '\t' && !unicode.IsPrint(r) { // layout of the usage text is ours
 			t.Errorf("%s: terminal-active rune %U survives in %q", what, r, text)
 			return
 		}
@@ -355,4 +354,59 @@ func TestSuccessLinesEchoNoTerminalControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertInert(t, "import -key", errOut)
+}
+
+func TestInitAndPasswdEchoNoTerminalControls(t *testing.T) {
+	t.Setenv("KEYSTORE_PASSPHRASE", testPass)
+	_, errOut, err := cli(t, "init", "-keystore", filepath.Join(t.TempDir(), hostile+".ks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "init", errOut)
+
+	r, _, _ := signFixture(t)
+	t.Setenv("KEYSTORE_NEW_PASSPHRASE", "a different long passphrase")
+	t.Setenv("KEYSTORE_KEYCHAIN", hostile) // names the item the operator keeps the passphrase in
+	_, errOut, err = cli(t, "passwd", "-keystore", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "keychain-set -service") {
+		t.Fatalf("passwd did not print the keychain note: %q", errOut)
+	}
+	assertInert(t, "passwd note", errOut)
+}
+
+// The flag package echoes an unknown flag name verbatim, and a script that lets a file
+// name become a flag token (`keystore sign "$f"`) hands it attacker bytes. Both copies of
+// the message (the flag package's own, and the usage error main prints) must be inert.
+func TestUnknownFlagNameIsInert(t *testing.T) {
+	_, errOut, err := cli(t, "sign", "-"+hostile)
+	if err == nil || !isUsage(err) {
+		t.Fatalf("err = %v, want a usage error", err)
+	}
+	assertInert(t, "flag package output", errOut)
+	var b bytes.Buffer
+	if code := report(&b, err); code != 2 {
+		t.Errorf("report code %d, want 2", code)
+	}
+	assertInert(t, "usage error line", b.String())
+}
+
+func TestReportExitCodesAndCleaning(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code int
+	}{
+		{nil, 0},
+		{flag.ErrHelp, 0},
+		{usageError("bad " + hostile), 2},
+		{errors.New("open " + hostile + ": no such file"), 1},
+	} {
+		var b bytes.Buffer
+		if code := report(&b, tc.err); code != tc.code {
+			t.Errorf("report(%v) = %d, want %d", tc.err, code, tc.code)
+		}
+		assertInert(t, "report", b.String())
+	}
 }

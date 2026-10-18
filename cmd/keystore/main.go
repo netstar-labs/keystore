@@ -12,7 +12,8 @@ import (
 	"io"
 	"os"
 	"strings"
-	"unicode"
+
+	"github.com/netstar-labs/keystore/internal/term"
 )
 
 // Set by the build: -ldflags "-X main.version=… -X main.build=…".
@@ -24,15 +25,22 @@ func (e usageError) Error() string { return string(e) }
 
 func main() {
 	err := run(os.Args[1:], &stdio{in: os.Stdin, out: os.Stdout, err: os.Stderr, inFile: os.Stdin, outFile: os.Stdout})
+	os.Exit(report(os.Stderr, err))
+}
+
+// report prints err to w and returns the process exit status: 0 for success and help, 2
+// for a usage error, 1 for anything else. Messages are cleaned: they can echo input the
+// operator's script took from elsewhere.
+func report(w io.Writer, err error) int {
 	switch {
-	case err == nil:
-	case errors.Is(err, flag.ErrHelp):
+	case err == nil, errors.Is(err, flag.ErrHelp):
+		return 0
 	case isUsage(err):
-		fmt.Fprintln(os.Stderr, "keystore:", err)
-		os.Exit(2)
+		fmt.Fprintln(w, "keystore:", term.Clean(err.Error()))
+		return 2
 	default:
-		fmt.Fprintln(os.Stderr, oneLine(err))
-		os.Exit(1)
+		fmt.Fprintln(w, oneLine(err))
+		return 1
 	}
 }
 
@@ -55,7 +63,7 @@ func run(args []string, s *stdio) error {
 			continue
 		}
 		fs := flag.NewFlagSet("keystore "+v.name, flag.ContinueOnError)
-		fs.SetOutput(s.err)
+		fs.SetOutput(term.Writer(s.err)) // the flag package echoes an unknown flag name verbatim
 		runVerb := v.setup(fs, s)
 		fs.Usage = func() {
 			fmt.Fprintf(s.err, "keystore %s — %s\n\n", v.name, v.summary)
@@ -91,23 +99,9 @@ func isUsage(err error) bool {
 
 // oneLine keeps failure output to a single line, free of terminal-active characters.
 func oneLine(err error) string {
-	msg := clean(err.Error())
+	msg := term.Clean(err.Error())
 	if !strings.HasPrefix(msg, "keystore") {
 		msg = "keystore: " + msg
 	}
 	return msg
-}
-
-// clean replaces every non-printable rune (control characters including ESC, CR, DEL and
-// C1, line separators, bidi overrides, and invalid UTF-8) with a space. Anything the CLI
-// echoes that it did not produce itself, such as a file name an operator's script took
-// from an archive or an upload, goes through it: an escape sequence or a carriage return
-// there must not act on the terminal or forge a line of our own output.
-func clean(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsPrint(r) {
-			return r
-		}
-		return ' '
-	}, s)
 }
