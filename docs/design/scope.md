@@ -11,7 +11,7 @@ file or be handed to the process that uses it.
 - **Operators and CI** that need to sign things without a plaintext key on disk.
 - **Go programs** that need a `crypto.Signer` or a secret from an encrypted store.
 
-## Scope — through v0.4
+## Scope — v0.1.0
 
 ### Entries
 - `ed25519` signing keys (generated or imported), public half readable without a passphrase.
@@ -72,7 +72,7 @@ message elsewhere. Windows is out of scope.
 
 ## Examples — machine-to-machine integration
 
-An `examples/` folder ships from v0.3.0 and demonstrates **unattended** use: no prompts, no
+An `examples/` folder ships with the first release and demonstrates **unattended** use: no prompts, no
 humans, no plaintext private key on any disk the workload can read. Each example is runnable
 end to end by a script, uses only the standard library plus `pkg/keystore` and `pkg/agent`,
 and is exercised by a test in CI so it cannot rot.
@@ -121,11 +121,8 @@ Two things must not be confused:
 
 | Release | Theme | Contents |
 |---|---|---|
-| **v0.1.0** | Core | Ring format `keystore/v1`, library, `init/keygen/add/import/list/use/rm/export-pub/export-priv`, locking, durable writes, id validation, golden-vector and fuzz tests |
-| **v0.2.0** | Secrets & custody | `add-secret/import-secret/export-secret`, `passwd`, passphrase sources incl. Keychain, TTY guards on exports |
-| **v0.3.0** | Agent & integration | `examples/` (m2m scenarios above), `keystore-agent`, `DialAgent`, peer-credential check, TTL/idle expiry, `ResolveSigner`, `sign`/`verify` verbs |
-| **v0.4.0** | Release readiness | README, SECURITY.md, generated verb reference, examples, CI (vet, race, fuzz budget, govulncheck), reproducible build, SBOM; release pre-flight |
-| **v0.5.0+** | Hardening | `mlock`/no-swap options, memory-zeroing audit, agent re-lock with re-prompt, key labels/metadata |
+| **v0.1.0** | First release, built in four phases | **Core:** ring format `keystore/v1`, library, `init/keygen/add/import/list/use/rm/export-pub/export-priv`, locking, durable writes, id validation, golden-vector and fuzz tests. **Secrets & custody:** `add-secret/import-secret/export-secret`, `passwd`, passphrase sources incl. Keychain, TTY guards. **Agent & integration:** `keystore-agent`, `agent.Dial`, peer credentials, TTL/idle, `ResolveSigner`, `sign`/`verify`, the six examples. **Release readiness:** CI (Linux + macOS, race, fuzz budget, govulncheck, deadcode), reproducible build, SBOM, notices, adversarial review and its fixes |
+| **v0.2.0+** | Hardening | `mlock`/no-swap options, memory-zeroing audit, agent re-lock with re-prompt, key labels/metadata |
 | **later (still v0.x)** | Backends & algorithms | PKCS#11 / cloud-KMS `Signer` providers as separate sub-modules, additional key types, post-quantum signing kind, ring format `keystore/v2` with the one-ahead rule |
 
 Each release is gated on: all tests green, fuzz target run for a fixed budget, `go vet`,
@@ -137,7 +134,7 @@ in the notes. A "stable" milestone is expressed as a frozen **ring format**, not
 
 1. ~~Module path and repo name~~ — **accepted:** `github.com/netstar-labs/keystore`.
 2. ~~License~~ — **accepted:** Apache-2.0.
-3. ~~`sign`/`verify`~~ — **accepted:** ship in v0.3.0. The agent signs any bytes a same-uid peer sends; documented as a trust trade-off in SECURITY.md.
+3. ~~`sign`/`verify`~~ — **accepted:** ship in v0.1.0 (agent phase). The agent signs any bytes a same-uid peer sends; documented as a trust trade-off in SECURITY.md.
 4. ~~Dependencies~~ — **accepted:** `golang.org/x/crypto` (argon2id) and `golang.org/x/sys` only; everything else stdlib. No `x/term` — the no-echo prompt uses `x/sys/unix` directly.
 5. ~~Default ring path~~ — **accepted:** `~/.config/keystore/default.ks`, overridable by
    `-keystore` and `KEYSTORE_FILE`.

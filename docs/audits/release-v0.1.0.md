@@ -1,22 +1,15 @@
-# Release v0.4.0
+# Release v0.1.0
 
 *Status: pre-flight complete; tagged locally (annotated). Pushing and publishing need a
 remote, which does not exist yet.*
 
 ## Version rationale
 
-Each roadmap phase is tagged on its last commit, so the user guide's "Release" column is
-true of the tags:
-
-| Tag | Commit | Contents |
-|---|---|---|
-| v0.1.0 | bc78a5e | ring format, signing keys, core verbs |
-| v0.2.0 | 6c5d501 | secrets, `passwd`, keychain |
-| v0.3.0 | 7d66928 | agent, `sign`/`verify`, examples |
-| v0.4.0 | this commit | review fixes F1–F4, release tooling, CI |
-
-v0.1.0–v0.3.0 predate the adversarial review: they carry F1–F4. Use v0.4.0. v0-forever policy: no v1, no `/vN` module path. The ring format
-is separately versioned (`keystore/v1`) and is the compatibility contract.
+First release, so `v0.1.0` under the v0-forever policy (no v1, no `/vN` module path). It
+contains all four build phases — core, secrets & custody, agent & integration, release
+readiness — and is the only tag: intermediate phase states predate the adversarial review
+and carried F1–F4. The ring format is separately versioned (`keystore/v1`) and is the
+compatibility contract.
 
 ## Release notes
 
@@ -62,7 +55,7 @@ CPU cost of a crafted ring, case-insensitive/duplicate JSON keys, CLI-only lengt
 | `go mod tidy` | no diff |
 | govulncheck v1.9.0 | 0 affecting; module-level `x/crypto/openpgp` (not imported, no fix) |
 | `go test -race -count=1 ./...` | 18/18 packages ok, including the six examples |
-| golden fixture (`testdata/golden.ks`, written in v0.1.0) | opens, unlocks, signs, secret matches |
+| golden fixture (`testdata/golden.ks`, written in the core phase) | opens, unlocks, signs, secret matches |
 | fuzz `FuzzParse` 30 s, `FuzzReadFrame` 30 s | pass |
 | reproducible binaries | byte-identical across two clean-cache builds (linux/amd64, darwin/arm64) |
 | adversarial review | done; findings above |
@@ -78,7 +71,7 @@ interop on exported PEM (system LibreSSL lacks Ed25519).
 ```sh
 build/keystore --release
 # = GOWORK=off CGO_ENABLED=0 go build -trimpath -buildvcs=true \
-#     -ldflags "-s -w -X main.version=v0.4.0 -X main.build=<rev>" ./cmd/keystore ./cmd/keystore-agent
+#     -ldflags "-s -w -X main.version=v0.1.0 -X main.build=<rev>" ./cmd/keystore ./cmd/keystore-agent
 #   for linux/{amd64,arm64} darwin/{amd64,arm64}; toolchain go1.27.2 (pinned in go.mod)
 ```
 
@@ -91,16 +84,16 @@ golang.org/x/sys v0.47.0) inside every install package and release archive, inst
 ## To publish (needs sign-off)
 
 1. Create the GitHub repo `netstar-labs/keystore` (private), push `main`, let CI go green.
-2. `git tag -a v0.4.0 <sha> -m "keystore v0.4.0"` and push the tag.
-3. `build/keystore --release`; `gh release create v0.4.0 --latest` with the archives,
+2. `git tag -a v0.1.0 <sha> -m "keystore v0.1.0"` and push the tag.
+3. `build/keystore --release`; `gh release create v0.1.0 --latest` with the archives,
    SHA256SUMS and these notes.
-4. Verify from a clean environment: `go install github.com/netstar-labs/keystore/cmd/keystore@v0.4.0`.
+4. Verify from a clean environment: `go install github.com/netstar-labs/keystore/cmd/keystore@v0.1.0`.
 5. Going public: add Apache-2.0 `LICENSE` (copyright holder per house policy), re-run the
    private-name screen, set description, topics (`go`, `cryptography`, `security`, `cli`,
    `library`) and homepage `https://pkg.go.dev/github.com/netstar-labs/keystore`.
 
 ## Rollback
 
-Delete the GitHub release and the tag (`gh release delete v0.4.0 && git push --delete
-origin v0.4.0`); if the module proxy has already fetched it, add a `retract v0.4.0` line to
-`go.mod` in a v0.4.1 release.
+Delete the GitHub release and the tag (`gh release delete v0.1.0 && git push --delete
+origin v0.1.0`); if the module proxy has already fetched it, add a `retract v0.1.0` line to
+`go.mod` in a v0.1.1 release.

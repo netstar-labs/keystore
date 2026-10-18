@@ -82,4 +82,4 @@ The cryptographic core is sound and small enough to rewrite cleanly. The three *
 findings are all *operational* — lost updates, an unenforced passphrase invariant, and an
 unsafe plaintext export — not cryptographic, which is the better kind to have. Build it
 fresh as a standalone module using this design as the spec, with findings 1–10 resolved by
-`v0.4.0`, and 11–15 as hardening tracked on the roadmap.
+`v0.1.0`, and 11–15 as hardening tracked on the roadmap.

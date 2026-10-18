@@ -9,21 +9,21 @@ line of error. The full flag list per verb is in the generated [reference](refer
 
 ## Verbs
 
-| Verb | What it does | Passphrase | Release |
-|---|---|---|---|
-| `init` | create an empty ring; never overwrites | no | v0.1.0 |
-| `keygen -id ID` | create the ring if missing, then mint a key | yes (new) | v0.1.0 |
-| `add -id ID` | mint another signing key | yes | v0.1.0 |
-| `import -id ID -key FILE` | encrypt an existing PKCS#8 PEM private key | yes | v0.1.0 |
-| `list` | id, kind, current marker, created, fingerprint | no | v0.1.0 |
-| `use -id ID` | make ID the current signing key | no | v0.1.0 |
-| `rm -id ID [-force]` | remove an entry; last signing key needs `-force` | no | v0.1.0 |
-| `export-pub [-id ID]` | SPKI PEM public key | no | v0.1.0 |
-| `export-priv [-id ID] [-o FILE] [-force]` | PKCS#8 PEM private key, guarded | yes | v0.1.0 |
-| `add-secret`, `import-secret`, `export-secret` | opaque secrets | yes | v0.2.0 |
-| `passwd` | change the ring passphrase | yes | v0.2.0 |
-| `keychain-set` | store the passphrase in the macOS Keychain | — | v0.2.0 |
-| `sign`, `verify` | sign with a ring key or agent; verify with a public key | sign: yes | v0.3.0 |
+| Verb | What it does | Passphrase |
+|---|---|---|
+| `init` | create an empty ring; never overwrites | no |
+| `keygen -id ID` | create the ring if missing, then mint a key | yes (new) |
+| `add -id ID` | mint another signing key | yes |
+| `import -id ID -key FILE` | encrypt an existing PKCS#8 PEM private key | yes |
+| `list` | id, kind, current marker, created, fingerprint | no |
+| `use -id ID` | make ID the current signing key | no |
+| `rm -id ID [-force]` | remove an entry; last signing key needs `-force` | no |
+| `export-pub [-id ID]` | SPKI PEM public key | no |
+| `export-priv [-id ID] [-o FILE] [-force]` | PKCS#8 PEM private key, guarded | yes |
+| `add-secret`, `import-secret`, `export-secret` | opaque secrets | yes |
+| `passwd` | change the ring passphrase | yes |
+| `keychain-set` | store the passphrase in the macOS Keychain | — |
+| `sign`, `verify` | sign with a ring key or agent; verify with a public key | sign: yes |
 
 ## Getting started
 
