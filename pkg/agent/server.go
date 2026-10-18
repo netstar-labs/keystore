@@ -49,7 +49,8 @@ type Server struct {
 
 	mu      sync.Mutex
 	ln      *net.UnixListener
-	closed  bool // Close was called, possibly before Serve
+	conns   map[*net.UnixConn]struct{} // open connections, closed on stop
+	closed  bool                       // stopped by Close (possibly before Serve) or expiry
 	expired bool
 	touch   chan struct{}
 }
@@ -143,9 +144,14 @@ func (s *Server) Serve(ln *net.UnixListener) error {
 			}
 			return err
 		}
+		if !s.track(c) {
+			c.Close() // stopping: accept raced with shutdown
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer s.untrack(c)
 			s.handle(c)
 		}()
 	}
@@ -186,18 +192,23 @@ func (s *Server) watch(stop <-chan struct{}) {
 func (s *Server) expire() {
 	s.mu.Lock()
 	s.expired = true
-	ln := s.ln
 	s.mu.Unlock()
-	ln.Close()
+	s.Close()
 }
 
-// Close stops the server and removes the socket. It is safe to call before, during or
-// after Serve, and more than once.
+// Close stops the server: it closes the listener (removing the socket) and every open
+// connection, so no request is served after it returns and Serve can exit. It is safe to
+// call before, during or after Serve, and more than once.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	s.closed = true
 	ln := s.ln
+	conns := s.conns
+	s.conns = nil
 	s.mu.Unlock()
+	for c := range conns {
+		c.Close()
+	}
 	if ln == nil {
 		return nil
 	}
@@ -205,6 +216,26 @@ func (s *Server) Close() error {
 		return err
 	}
 	return nil
+}
+
+// track registers an accepted connection; it reports false if the server is stopping.
+func (s *Server) track(c *net.UnixConn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	if s.conns == nil {
+		s.conns = map[*net.UnixConn]struct{}{}
+	}
+	s.conns[c] = struct{}{}
+	return true
+}
+
+func (s *Server) untrack(c *net.UnixConn) {
+	s.mu.Lock()
+	delete(s.conns, c)
+	s.mu.Unlock()
 }
 
 func (s *Server) logf(format string, args ...any) {
