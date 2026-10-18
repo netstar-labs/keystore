@@ -636,3 +636,26 @@ func TestConcurrentListenRestoresUmask(t *testing.T) {
 		}
 	}
 }
+
+// Same hazard as the ring's lock file: under a restrictive umask the agent's path lock was
+// created 0400, so the NEXT agent start failed with permission denied until it was removed.
+func TestAgentLockFileIsUsableUnderARestrictiveUmask(t *testing.T) {
+	dir := sockDir(t) // before the umask change
+	old := syscall.Umask(0o277)
+	defer syscall.Umask(old)
+	sock := filepath.Join(dir, "a.sock")
+	for i := 0; i < 2; i++ {
+		ln, err := Listen(sock)
+		if err != nil {
+			t.Fatalf("Listen #%d under umask 0277: %v", i+1, err)
+		}
+		ln.Close()
+	}
+	st, err := os.Stat(sock + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Errorf("agent lock file mode %04o, want 0600", st.Mode().Perm())
+	}
+}

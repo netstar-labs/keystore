@@ -106,6 +106,9 @@ func Listen(path string) (*Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	// As for the ring lock: fix the umask-dependent creation mode on the descriptor; the error
+	// is ignored because the open succeeded and flock works regardless.
+	lock.Chmod(0o600)
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		lock.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {

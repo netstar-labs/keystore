@@ -414,6 +414,10 @@ func Lock(path string) (release func(), err error) {
 	if err != nil {
 		return nil, err
 	}
+	// The creation mode is subject to the umask (0277 would leave 0400 and wedge every later
+	// open), so fix it on the descriptor. The error is ignored: the open succeeded, so flock
+	// works; fchmod can fail (EPERM on another user's file, filesystems without chmod).
+	fh.Chmod(0o600)
 	deadline := time.Now().Add(LockTimeout)
 	for {
 		err := syscall.Flock(int(fh.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
