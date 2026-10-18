@@ -49,14 +49,16 @@ var verbs = []verb{
 	{"verify", "verify a signature over -in FILE or stdin with a public key PEM; no ring needed", setupVerify},
 }
 
-// DefaultRing is used when neither -keystore nor KEYSTORE_FILE is given.
+// defaultRing is used when neither -keystore nor KEYSTORE_FILE is given. It is empty when
+// there is no home directory either (cron, a system unit): run then refuses the verb rather
+// than quietly using a ring in the working directory that no later command would find.
 func defaultRing() string {
 	if v := os.Getenv("KEYSTORE_FILE"); v != "" {
 		return v
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "default.ks"
+		return ""
 	}
 	return filepath.Join(home, ".config", "keystore", "default.ks")
 }
