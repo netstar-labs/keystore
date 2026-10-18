@@ -31,7 +31,7 @@ line of error. The full flag list per verb is in the generated [reference](refer
 keystore keygen -keystore prod.ks -id 2026-prod      # creates prod.ks, prompts for a passphrase twice
 keystore export-pub -keystore prod.ks > prod.pub     # publish this
 keystore list -keystore prod.ks
-#   * 2026-prod   ed25519   2026-10-18T19:02:11Z   SHA256:…
+# *  2026-prod  ed25519  2026-10-18T19:02:11Z  SHA256:…
 ```
 
 ## Passphrases
@@ -39,11 +39,12 @@ keystore list -keystore prod.ks
 Resolved in this order:
 
 1. `KEYSTORE_PASSPHRASE` — convenient for automation, but visible in the process environment.
-2. macOS Keychain, when `KEYSTORE_KEYCHAIN=<service>` is set (v0.2.0).
-3. `-passfile FILE` — must be owned by you and mode 0600 or stricter, or it is refused.
-4. A no-echo prompt on the terminal (asked twice when setting a new passphrase).
+2. `-passfile FILE` — must be owned by you and mode 0600 or stricter, or it is refused.
+3. A no-echo prompt on the terminal (asked twice when setting a new passphrase).
 
-A **new** passphrase must be at least 12 characters, from any source. Unlocking is never
+From v0.2.0 the macOS Keychain (`KEYSTORE_KEYCHAIN=<service>`) slots in between 1 and 2.
+
+A **new** passphrase — the one given when the first key goes into an empty ring — must be at least 12 characters, from any source. Unlocking is never
 length-checked. One ring has one passphrase: adding an entry with a different passphrase is
 refused (`passphrase does not match this ring`).
 
