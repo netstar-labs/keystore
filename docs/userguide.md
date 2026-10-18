@@ -42,9 +42,10 @@ Resolved in this order:
 1. `KEYSTORE_PASSPHRASE` — convenient for automation, but visible in the process environment.
    When it is set it wins over `-passfile` (the same holds for the keychain below, and for
    `KEYSTORE_NEW_PASSPHRASE` over `-new-passfile` in `passwd`). Unlocking prints a note
-   (`KEYSTORE_PASSPHRASE is set, so -passfile is ignored`); *establishing* a passphrase
-   (`keygen` into an empty ring, `passwd`) is refused, because the ring would otherwise be
-   created under a value you did not mean. Unset one of the two.
+   (`KEYSTORE_PASSPHRASE is set, so -passfile is ignored`); *establishing* a passphrase (the
+   first entry into an empty ring: `keygen`, `add`, `import`, `add-secret`, `import-secret`; and
+   `passwd`'s new passphrase) is refused, because the ring would otherwise be created under a
+   value you did not mean. Unset one of the two.
 2. `-passfile FILE` — must be owned by you and mode 0600 or stricter, or it is refused.
 3. A no-echo prompt on the terminal (asked twice when setting a new passphrase).
 
@@ -56,8 +57,8 @@ falling through to a prompt.
 
 A **new** passphrase — the one given when the first key goes into an empty ring — must be at
 least 12 characters, from any source. Unlocking is never length-checked. If `keygen` is
-refused for a short passphrase it has already created the ring file, empty (the state `init`
-leaves); run it again. Upper bounds: the terminal prompt takes up to 1024 bytes and a
+refused (a short passphrase, or a shadowed `-passfile` as above) it has already created the
+ring file, empty (the state `init` leaves); run it again. Upper bounds: the terminal prompt takes up to 1024 bytes and a
 passfile up to 4096 bytes; `KEYSTORE_PASSPHRASE` has no cap. One ring has one passphrase:
 adding an entry with a different passphrase is refused (`passphrase does not match this
 ring`).

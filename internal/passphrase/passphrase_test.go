@@ -244,8 +244,8 @@ func TestShadowedPassfileIsAnnouncedWhenUnlocking(t *testing.T) {
 		if err != nil || string(pw) != "the environment passphrase" {
 			t.Fatalf("precedence changed: %q, %v", pw, err)
 		}
-		if len(*notes) != 1 || !strings.Contains((*notes)[0], EnvVar) || !strings.Contains((*notes)[0], "-passfile is ignored") {
-			t.Errorf("notices = %q, want one naming %s and -passfile", *notes, EnvVar)
+		if want := "keystore: note: " + EnvVar + " is set, so -passfile is ignored"; len(*notes) != 1 || (*notes)[0] != want {
+			t.Errorf("notices = %q, want exactly [%q]", *notes, want)
 		}
 	})
 	t.Run("keychain shadows passfile", func(t *testing.T) {
@@ -255,8 +255,8 @@ func TestShadowedPassfileIsAnnouncedWhenUnlocking(t *testing.T) {
 		if _, err := Unlock(pf); err != nil {
 			t.Fatal(err)
 		}
-		if len(*notes) != 1 || !strings.Contains((*notes)[0], KeychainVar) {
-			t.Errorf("notices = %q, want one naming %s", *notes, KeychainVar)
+		if want := "keystore: note: " + KeychainVar + " is set, so -passfile is ignored"; len(*notes) != 1 || (*notes)[0] != want {
+			t.Errorf("notices = %q, want exactly [%q]", *notes, want)
 		}
 	})
 	t.Run("nothing shadowed, nothing said", func(t *testing.T) {
@@ -288,11 +288,11 @@ func TestShadowedPassfileIsRefusedWhenEstablishing(t *testing.T) {
 		want []string
 	}{
 		{"new: env", func(t *testing.T) { t.Setenv(EnvVar, "the environment passphrase") },
-			func() ([]byte, error) { return New(pf) }, []string{EnvVar, "-passfile"}},
+			func() ([]byte, error) { return New(pf) }, []string{EnvVar + " is set and so is -passfile;"}},
 		{"new: keychain", func(t *testing.T) { stubKeychain(t, "the keychain passphrase", nil); t.Setenv(KeychainVar, "svc") },
-			func() ([]byte, error) { return New(pf) }, []string{KeychainVar, "-passfile"}},
+			func() ([]byte, error) { return New(pf) }, []string{KeychainVar + " is set and so is -passfile;"}},
 		{"replacement: new env names -new-passfile", func(t *testing.T) { t.Setenv(NewEnvVar, "the new environment passphrase") },
-			func() ([]byte, error) { return Replacement(pf) }, []string{NewEnvVar, "-new-passfile"}},
+			func() ([]byte, error) { return Replacement(pf) }, []string{NewEnvVar + " is set and so is -new-passfile;"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
