@@ -2,7 +2,10 @@ package term
 
 import (
 	"os"
+	"os/signal"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestIsTerminalOnRegularFile(t *testing.T) {
@@ -38,5 +41,56 @@ func TestReadLineTooLong(t *testing.T) {
 	}()
 	if _, err := readLine(r); err == nil {
 		t.Fatal("over-long line accepted")
+	}
+}
+
+// Ctrl-\ (SIGQUIT) and the hangup of a closing terminal used to bypass the terminal
+// restore: the shell was left without echo (and Ctrl-\ also dumped a Go traceback).
+func TestInterruptRestoresTerminalAndExits(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP} {
+		t.Run(sig.String(), func(t *testing.T) {
+			restored := make(chan struct{})
+			exited := make(chan int, 1)
+			stop := restoreOnSignal(func() { close(restored) }, func(code int) { exited <- code })
+			defer stop()
+			if err := syscall.Kill(os.Getpid(), sig); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case code := <-exited:
+				select {
+				case <-restored:
+				default:
+					t.Fatal("exited without restoring the terminal first")
+				}
+				if code != 130 {
+					t.Errorf("exit code %d, want 130", code)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%v during the prompt was not handled", sig)
+			}
+		})
+	}
+}
+
+func TestStopWatchingIgnoresLaterSignals(t *testing.T) {
+	exited := make(chan int, 1)
+	stop := restoreOnSignal(func() {}, func(code int) { exited <- code })
+	stop()
+	// with the watcher stopped, SIGHUP must not call exit (the process keeps default
+	// handling off: keep a Notify so the test process itself does not die)
+	keep := make(chan os.Signal, 1)
+	signal.Notify(keep, syscall.SIGHUP)
+	defer signal.Stop(keep)
+	syscall.Kill(os.Getpid(), syscall.SIGHUP)
+	select {
+	case <-keep:
+	case <-time.After(time.Second):
+		t.Fatal("test signal not delivered")
+	}
+	select {
+	case code := <-exited:
+		t.Fatalf("exit(%d) called after stop", code)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
