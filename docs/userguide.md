@@ -42,11 +42,42 @@ Resolved in this order:
 2. `-passfile FILE` — must be owned by you and mode 0600 or stricter, or it is refused.
 3. A no-echo prompt on the terminal (asked twice when setting a new passphrase).
 
-From v0.2.0 the macOS Keychain (`KEYSTORE_KEYCHAIN=<service>`) slots in between 1 and 2.
+On macOS, `keystore keychain-set -service prod` stores the passphrase in the login keychain
+(the `security` tool prompts for it, so it never touches argv); then `export
+KEYSTORE_KEYCHAIN=prod` and the keychain is consulted after `KEYSTORE_PASSPHRASE` and before
+`-passfile`. If `KEYSTORE_KEYCHAIN` is set and the lookup fails, the command fails rather than
+falling through to a prompt.
 
 A **new** passphrase — the one given when the first key goes into an empty ring — must be at least 12 characters, from any source. Unlocking is never
 length-checked. One ring has one passphrase: adding an entry with a different passphrase is
 refused (`passphrase does not match this ring`).
+
+## Secrets
+
+Opaque secrets — API tokens, HMAC keys — live in the same ring under the same passphrase.
+
+```sh
+keystore add-secret    -keystore prod.ks -id hmac          # 32 random bytes, never printed
+printf %s "$TOKEN_B64" | keystore import-secret -keystore prod.ks -id api   # base64 on stdin
+keystore import-secret -keystore prod.ks -id api -in token.b64             # or from a file
+keystore export-secret -keystore prod.ks -id api -o api.b64                # base64, 0600
+```
+
+On a terminal, `import-secret` prompts for the value without echo. A secret is never
+accepted as a command-line argument. `export-secret` follows the same output rules as
+`export-priv` (below).
+
+## Changing the passphrase
+
+```sh
+keystore passwd -keystore prod.ks
+```
+
+It asks for the current passphrase, then the new one twice. Every entry is unlocked first;
+if any fails, nothing is written. Then every entry is re-encrypted with fresh salts at the
+current KDF cost in one atomic write. For automation, the new passphrase can come from
+`KEYSTORE_NEW_PASSPHRASE` or `-new-passfile FILE` (never from the keychain). Update the
+keychain item afterwards if you use one.
 
 ## Rotation
 

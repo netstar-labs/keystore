@@ -23,14 +23,24 @@ const testPass = "a long enough test passphrase"
 func TestMain(m *testing.M) {
 	kdf.Default = kdf.Cost{Mem: kdf.MinMem, Time: 1, Par: 1}
 	passphrase.Prompt = func(string) ([]byte, error) { return nil, errors.New("test must not prompt") }
+	passphrase.Keychain = func(string) ([]byte, error) { return nil, errors.New("test must not reach the keychain") }
+	promptSecret = func(string) ([]byte, error) { return nil, errors.New("test must not prompt") }
+	for _, v := range []string{"KEYSTORE_KEYCHAIN", "KEYSTORE_PASSPHRASE", "KEYSTORE_NEW_PASSPHRASE", "KEYSTORE_FILE"} {
+		os.Unsetenv(v)
+	}
 	os.Exit(m.Run())
 }
 
 // cli runs one invocation in-process and returns stdout, stderr and the error.
 func cli(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
+	return cliIn(t, "", args...)
+}
+
+func cliIn(t *testing.T, stdin string, args ...string) (string, string, error) {
+	t.Helper()
 	var out, errb bytes.Buffer
-	err := run(args, &stdio{out: &out, err: &errb})
+	err := run(args, &stdio{in: strings.NewReader(stdin), out: &out, err: &errb})
 	return out.String(), errb.String(), err
 }
 
@@ -226,7 +236,7 @@ func TestNoVerbHasAPassphraseFlag(t *testing.T) {
 		fs := flag.NewFlagSet(v.name, flag.ContinueOnError)
 		v.setup(fs, &stdio{})
 		fs.VisitAll(func(f *flag.Flag) {
-			if strings.Contains(strings.ToLower(f.Name), "pass") && f.Name != "passfile" {
+			if strings.Contains(strings.ToLower(f.Name), "pass") && !strings.HasSuffix(f.Name, "passfile") {
 				t.Errorf("verb %s has flag -%s", v.name, f.Name)
 			}
 		})

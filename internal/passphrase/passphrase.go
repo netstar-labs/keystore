@@ -4,10 +4,14 @@
 // Sources, first match wins:
 //
 //  1. the KEYSTORE_PASSPHRASE environment variable
-//  2. a passfile — owned by the current user, mode 0600 or stricter, not a symlink
-//  3. a no-echo prompt on the controlling terminal
+//  2. the macOS Keychain, when KEYSTORE_KEYCHAIN names a service; if it is set and the
+//     lookup fails, that is an error — an explicitly configured source never silently
+//     falls through to the next
+//  3. a passfile — owned by the current user, mode 0600 or stricter, not a symlink
+//  4. a no-echo prompt on the controlling terminal
 //
-// The macOS Keychain source arrives in v0.2.0 and slots in between 1 and 2.
+// A replacement passphrase (for passwd) comes from KEYSTORE_NEW_PASSPHRASE, a new
+// passfile, or the prompt — never the keychain or the current-passphrase variable.
 package passphrase
 
 import (
@@ -18,11 +22,16 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/netstar-labs/keystore/internal/keychain"
 	"github.com/netstar-labs/keystore/internal/term"
 )
 
-// EnvVar names the environment variable source.
-const EnvVar = "KEYSTORE_PASSPHRASE"
+// Environment variables.
+const (
+	EnvVar      = "KEYSTORE_PASSPHRASE"     // the ring passphrase
+	KeychainVar = "KEYSTORE_KEYCHAIN"       // keychain service holding the ring passphrase
+	NewEnvVar   = "KEYSTORE_NEW_PASSPHRASE" // a replacement passphrase, for passwd
+)
 
 // MinLen is the minimum length of a newly established passphrase, from any source.
 const MinLen = 12
@@ -41,9 +50,24 @@ var (
 // Prompt reads a passphrase interactively; tests replace it.
 var Prompt = term.ReadPassword
 
+// Keychain reads a passphrase from the keychain; tests replace it.
+var Keychain = keychain.Get
+
+type sources struct {
+	env      string
+	keychain bool
+	prompt   string
+}
+
+var (
+	current     = sources{env: EnvVar, keychain: true, prompt: "keystore passphrase: "}
+	established = sources{env: EnvVar, keychain: true, prompt: "new keystore passphrase: "}
+	replacement = sources{env: NewEnvVar, prompt: "new keystore passphrase: "}
+)
+
 // Unlock returns the passphrase for an existing ring. No length rule applies.
 func Unlock(passfile string) ([]byte, error) {
-	pw, _, err := resolve(passfile, "keystore passphrase: ")
+	pw, _, err := resolve(current, passfile)
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +79,14 @@ func Unlock(passfile string) ([]byte, error) {
 
 // New returns a passphrase being established for a ring. A prompted passphrase is asked
 // twice and must match; any source must meet MinLen.
-func New(passfile string) ([]byte, error) {
-	pw, prompted, err := resolve(passfile, "new keystore passphrase: ")
+func New(passfile string) ([]byte, error) { return establish(established, passfile) }
+
+// Replacement returns the new passphrase for passwd, under the same rules as New but
+// from KEYSTORE_NEW_PASSPHRASE, newPassfile or the prompt.
+func Replacement(newPassfile string) ([]byte, error) { return establish(replacement, newPassfile) }
+
+func establish(src sources, passfile string) ([]byte, error) {
+	pw, prompted, err := resolve(src, passfile)
 	if err != nil {
 		return nil, err
 	}
@@ -83,15 +113,22 @@ func New(passfile string) ([]byte, error) {
 	return pw, nil
 }
 
-func resolve(passfile, prompt string) (pw []byte, prompted bool, err error) {
-	if v, ok := os.LookupEnv(EnvVar); ok && v != "" {
+func resolve(src sources, passfile string) (pw []byte, prompted bool, err error) {
+	if v, ok := os.LookupEnv(src.env); ok && v != "" {
 		return []byte(v), false, nil
+	}
+	if svc := os.Getenv(KeychainVar); src.keychain && svc != "" {
+		pw, err := Keychain(svc)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s=%s: %w", KeychainVar, svc, err)
+		}
+		return pw, false, nil
 	}
 	if passfile != "" {
 		pw, err := readPassfile(passfile)
 		return pw, false, err
 	}
-	pw, err = Prompt(prompt)
+	pw, err = Prompt(src.prompt)
 	return pw, true, err
 }
 

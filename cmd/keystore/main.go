@@ -22,7 +22,7 @@ type usageError string
 func (e usageError) Error() string { return string(e) }
 
 func main() {
-	err := run(os.Args[1:], &stdio{out: os.Stdout, err: os.Stderr, outFile: os.Stdout})
+	err := run(os.Args[1:], &stdio{in: os.Stdin, out: os.Stdout, err: os.Stderr, inFile: os.Stdin, outFile: os.Stdout})
 	switch {
 	case err == nil:
 	case errors.Is(err, flag.ErrHelp):

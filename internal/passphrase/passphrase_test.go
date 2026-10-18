@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	// Never consult a developer's real keychain or passphrase from the environment.
+	os.Unsetenv(KeychainVar)
+	os.Unsetenv(EnvVar)
+	os.Unsetenv(NewEnvVar)
+	Keychain = func(string) ([]byte, error) { return nil, errors.New("test must not reach the keychain") }
+	os.Exit(m.Run())
+}
+
 func stubPrompt(t *testing.T, answers ...string) {
 	t.Helper()
 	old := Prompt
@@ -118,5 +127,75 @@ func TestNewPromptConfirms(t *testing.T) {
 	stubPrompt(t)
 	if _, err := New(""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func stubKeychain(t *testing.T, val string, err error) *[]string {
+	t.Helper()
+	old := Keychain
+	t.Cleanup(func() { Keychain = old })
+	var asked []string
+	Keychain = func(svc string) ([]byte, error) {
+		asked = append(asked, svc)
+		return []byte(val), err
+	}
+	return &asked
+}
+
+func TestKeychainOrder(t *testing.T) {
+	pf := passfile(t, "from the passfile", 0o600)
+	stubPrompt(t)
+	asked := stubKeychain(t, "from the keychain", nil)
+	t.Setenv(KeychainVar, "svc")
+
+	t.Setenv(EnvVar, "from the environment")
+	if pw, _ := Unlock(pf); string(pw) != "from the environment" {
+		t.Fatalf("env must beat keychain: %q", pw)
+	}
+	t.Setenv(EnvVar, "")
+	if pw, _ := Unlock(pf); string(pw) != "from the keychain" {
+		t.Fatalf("keychain must beat passfile: %q", pw)
+	}
+	if len(*asked) != 1 || (*asked)[0] != "svc" {
+		t.Fatalf("keychain asked for %v", *asked)
+	}
+	t.Setenv(KeychainVar, "")
+	if pw, _ := Unlock(pf); string(pw) != "from the passfile" {
+		t.Fatalf("passfile when keychain unset: %q", pw)
+	}
+}
+
+func TestKeychainFailureDoesNotFallThrough(t *testing.T) {
+	pf := passfile(t, "from the passfile", 0o600)
+	stubPrompt(t)
+	stubKeychain(t, "", errors.New("no item"))
+	t.Setenv(EnvVar, "")
+	t.Setenv(KeychainVar, "svc")
+	if pw, err := Unlock(pf); err == nil {
+		t.Fatalf("configured keychain failed but Unlock returned %q", pw)
+	}
+}
+
+func TestReplacementSources(t *testing.T) {
+	stubKeychain(t, "from the keychain", nil)
+	t.Setenv(KeychainVar, "svc")
+	t.Setenv(EnvVar, "the current passphrase")
+	t.Setenv(NewEnvVar, "the replacement passphrase")
+	stubPrompt(t)
+	if pw, err := Replacement(""); err != nil || string(pw) != "the replacement passphrase" {
+		t.Fatalf("Replacement = %q, %v", pw, err)
+	}
+	// Neither the current-passphrase variable nor the keychain may supply a replacement.
+	t.Setenv(NewEnvVar, "")
+	stubPrompt(t, "typed replacement!", "typed replacement!")
+	if pw, err := Replacement(""); err != nil || string(pw) != "typed replacement!" {
+		t.Fatalf("Replacement fell back to %q, %v; want the prompt", pw, err)
+	}
+	t.Setenv(NewEnvVar, "short")
+	if _, err := Replacement(""); !errors.Is(err, ErrTooShort) {
+		t.Fatalf("short replacement: %v", err)
+	}
+	if pw, err := Replacement(passfile(t, "replacement from a file\n", 0o600)); err == nil {
+		t.Fatalf("env should win over the new passfile; got %q", pw)
 	}
 }

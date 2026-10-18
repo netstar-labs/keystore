@@ -19,3 +19,9 @@ Choices made where the design left room. Newest last.
 | 13 | The argon2id known-answer test checks `Derive` against a direct `argon2.IDKey` call plus a recorded value. | The published reference vectors use 8-byte salts and sub-MiB memory, outside this package's bounds; `x/crypto` validates argon2id against them itself. |
 | 14 | `created` is not authenticated. | It is display metadata; binding it would make a clock change look like tampering. The tamper test asserts it stays editable. |
 | 15 | Adding to an empty ring establishes the passphrase (confirmed when prompted, 12-character minimum); adding to a non-empty ring unlocks with the existing one. | The minimum applies to establishing, not to unlocking. |
+| 16 | If `KEYSTORE_KEYCHAIN` is set and the keychain lookup fails, the command fails; it does not fall through to the passfile or prompt. | An explicitly configured source that silently degrades hides misconfiguration. |
+| 17 | The keychain is driven via `/usr/bin/security` by absolute path; service names use the entry-id alphabet. | No `PATH` hijack; a service name can never be parsed as an option. |
+| 18 | Imported secrets are 1 byte to 64 KiB. | Secrets are keys and tokens; the bound keeps a ring small and parse-safe. |
+| 19 | `passwd` takes the new passphrase from `KEYSTORE_NEW_PASSPHRASE`, `-new-passfile` or the prompt — never from the keychain or `KEYSTORE_PASSPHRASE` — and refuses a new passphrase equal to the old. | The current and new values must come from distinct places, or automation would "change" to the same value. |
+| 20 | `import-secret` reads base64 from `-in FILE`, piped stdin, or a no-echo prompt when stdin is a terminal. | Never argv; a terminal user should not see the value echoed. |
+| 21 | The golden fixture gained a `secret` entry by appending to the existing file; the original entry is byte-identical. | Proves the v1 entry written in v0.1.0 still opens, while pinning the secret kind. |

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,7 +23,9 @@ type verb struct {
 }
 
 type stdio struct {
+	in       io.Reader
 	out, err io.Writer
+	inFile   *os.File // for terminal detection; nil in tests
 	outFile  *os.File // for terminal detection; nil in tests
 }
 
@@ -38,6 +39,11 @@ var verbs = []verb{
 	{"rm", "remove an entry; the last signing key needs -force", setupRm},
 	{"export-pub", "write a public key as SPKI PEM (no passphrase)", setupExportPub},
 	{"export-priv", "write a private key as PKCS#8 PEM, for backup or migration (guarded)", setupExportPriv},
+	{"add-secret", "mint a random 32-byte secret (never printed; use export-secret)", setupAddSecret},
+	{"import-secret", "store a base64 secret read from -in FILE or stdin (prompted without echo on a terminal)", setupImportSecret},
+	{"export-secret", "write a secret as base64 (guarded)", setupExportSecret},
+	{"passwd", "change the ring passphrase and re-encrypt every entry", setupPasswd},
+	{"keychain-set", "store the ring passphrase in the macOS login keychain (security prompts for it)", setupKeychainSet},
 }
 
 // DefaultRing is used when neither -keystore nor KEYSTORE_FILE is given.
@@ -279,8 +285,8 @@ func setupExportPriv(fs *flag.FlagSet, s *stdio) func() error {
 			return err
 		}
 		// Refuse a terminal before asking for the passphrase, not after.
-		if *out == "" && !*force && s.outFile != nil && isTerminal(s.outFile) {
-			return errors.New("keystore: refusing to write a private key to a terminal (use -o FILE, or -force)")
+		if err := guardTerminal(s, *out, *force, "a private key"); err != nil {
+			return err
 		}
 		pw, err := passphrase.Unlock(*pf)
 		if err != nil {
@@ -297,14 +303,6 @@ func setupExportPriv(fs *flag.FlagSet, s *stdio) func() error {
 			return err
 		}
 		defer clear(b)
-		if *out == "" {
-			_, err = s.out.Write(b)
-			return err
-		}
-		if err := writeSecretFile(*out, b, *force); err != nil {
-			return err
-		}
-		fmt.Fprintf(s.err, "wrote %s (PKCS#8, 0600)\n", *out)
-		return nil
+		return emit(s, *out, *force, b, "PKCS#8")
 	}
 }

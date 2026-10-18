@@ -14,6 +14,28 @@ import (
 // isTerminal is a variable so tests can exercise the terminal guard without a TTY.
 var isTerminal = func(f *os.File) bool { return term.IsTerminal(f.Fd()) }
 
+// guardTerminal refuses to send secret material to a terminal on stdout unless forced.
+// Callers run it before asking for the passphrase, so a refusal costs nothing.
+func guardTerminal(s *stdio, out string, force bool, what string) error {
+	if out == "" && !force && s.outFile != nil && isTerminal(s.outFile) {
+		return fmt.Errorf("keystore: refusing to write %s to a terminal (use -o FILE, or -force)", what)
+	}
+	return nil
+}
+
+// emit writes secret material to stdout, or to path under writeSecretFile's rules.
+func emit(s *stdio, path string, force bool, b []byte, form string) error {
+	if path == "" {
+		_, err := s.out.Write(b)
+		return err
+	}
+	if err := writeSecretFile(path, b, force); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.err, "wrote %s (%s, 0600)\n", path, form)
+	return nil
+}
+
 // writeSecretFile writes secret material to path with mode 0600.
 //
 // A new path is created O_EXCL|O_NOFOLLOW, so it cannot land in a pre-planted file or

@@ -92,3 +92,54 @@ write a private key as PKCS#8 PEM, for backup or migration (guarded)
 | `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
 | `-o` | write to this new file (0600); default stdout | — |
 | `-passfile` | read the passphrase from this file (0600, owned by you) | — |
+
+## `add-secret`
+
+mint a random 32-byte secret (never printed; use export-secret)
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-id` | entry id (required) | — |
+| `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
+| `-passfile` | read the passphrase from this file (0600, owned by you) | — |
+
+## `import-secret`
+
+store a base64 secret read from -in FILE or stdin (prompted without echo on a terminal)
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-id` | entry id (required) | — |
+| `-in` | file holding the base64 secret; - for stdin | - |
+| `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
+| `-passfile` | read the passphrase from this file (0600, owned by you) | — |
+
+## `export-secret`
+
+write a secret as base64 (guarded)
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-force` | replace an existing -o file, or allow writing to a terminal | — |
+| `-id` | entry id (required) | — |
+| `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
+| `-o` | write to this new file (0600); default stdout | — |
+| `-passfile` | read the passphrase from this file (0600, owned by you) | — |
+
+## `passwd`
+
+change the ring passphrase and re-encrypt every entry
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
+| `-new-passfile` | read the NEW passphrase from this file (0600, owned by you); env KEYSTORE_NEW_PASSPHRASE | — |
+| `-passfile` | read the passphrase from this file (0600, owned by you) | — |
+
+## `keychain-set`
+
+store the ring passphrase in the macOS login keychain (security prompts for it)
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-service` | keychain service name (use it as KEYSTORE_KEYCHAIN) | keystore |
