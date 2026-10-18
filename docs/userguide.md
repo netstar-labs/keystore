@@ -1,7 +1,7 @@
 # User guide
 
 `keystore <verb> [flags]`. Every verb that reads a ring accepts `-keystore FILE` (default
-`$KEYSTORE_FILE`, else `~/.config/keystore/default.ks`); `verify` and `keychain-set` read no ring
+`$KEYSTORE_FILE`, else `~/.config/keystore/default.ks`; with no home directory either, such as under cron, the verb exits 2 until you give one); `verify` and `keychain-set` read no ring
 and take no `-keystore`. Verbs that need the passphrase also accept `-passfile FILE`.
 There is **no passphrase flag** — argv is visible to other users in `ps`.
 

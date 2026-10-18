@@ -91,6 +91,10 @@ func run(args []string, s *stdio) error {
 			}
 			return usageError(err.Error())
 		}
+		// sign -agent never reads the ring, so it needs no ring path.
+		if f, a := fs.Lookup("keystore"), fs.Lookup("agent"); f != nil && f.Value.String() == "" && (a == nil || a.Value.String() == "") {
+			return usageError("no ring path: pass -keystore FILE or set KEYSTORE_FILE (no home directory to default to)")
+		}
 		if fs.NArg() != 0 {
 			return usageError(fmt.Sprintf("%s: unexpected argument %q", v.name, fs.Arg(0)))
 		}
