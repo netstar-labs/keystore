@@ -88,6 +88,40 @@ Consumers pin public keys, so rotate by overlap:
 3. `keystore use -id 2027-prod` — new signatures use it
 4. `keystore rm -id 2026-prod` once nothing needs the old key
 
+## Signing and verifying
+
+```sh
+keystore sign   -keystore prod.ks -in msg > msg.sig            # unlocks the current key
+keystore sign   -agent /run/user/1000/keystore/agent.sock -in msg > msg.sig   # no passphrase
+keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid
+```
+
+Signatures are pure Ed25519, written as base64 (or 64 raw bytes with `-raw`). Messages are
+limited to 1 MiB on both paths; for artifacts, sign a digest manifest
+(`sha256sum app.tgz > SHA256SUMS`) — see [examples/ci-release](../examples/ci-release/).
+
+## The agent
+
+```sh
+keystore-agent -keystore prod.ks -id prod-2026 -sock "$XDG_RUNTIME_DIR/keystore/agent.sock" \
+               -passfile ~/.config/keystore/pass -ttl 8h -idle 30m
+```
+
+The agent unlocks one key at start, holds it only in memory, and signs for processes running
+as the same user over an owner-only socket. Its passphrase comes from `KEYSTORE_PASSPHRASE`
+(removed from its environment once read) or `-passfile`; it never prompts and never reads
+the keychain. The socket's directory must be yours and mode 0700. It stops — removing the
+socket — on SIGINT/SIGTERM, after `-ttl`, or after `-idle` without requests. A second agent
+will not take over a live socket. Wire format: [agent-protocol.md](agent-protocol.md).
+Service definitions: [examples/agent-service](../examples/agent-service/).
+
+Go programs use the agent as a `crypto.Signer`:
+
+```go
+s, err := agent.Dial(sock)                  // or agent.ResolveSigner(sock, ring, id, passFn)
+sig, err := s.Sign(nil, msg, crypto.Hash(0))
+```
+
 ## Exporting private keys
 
 `export-priv` exists for backup and migration. It writes PKCS#8 PEM to `-o FILE`, which is

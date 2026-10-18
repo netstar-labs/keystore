@@ -28,6 +28,7 @@ handed to the process that uses it.
 
 - [Architecture](docs/architecture.md) — packages, data flow, trade-offs
 - [Ring format](docs/format.md) — the normative on-disk format
+- [Agent protocol](docs/agent-protocol.md) — the normative socket protocol
 - [Design: scope & roadmap](docs/design/scope.md) · [review of the reference design](docs/design/review.md) · [decisions](docs/design/decisions.md)
 
 ## Operations
@@ -45,7 +46,7 @@ handed to the process that uses it.
 | Path | Purpose |
 |---|---|
 | `pkg/keystore/` | public library: open/create a ring, keys and secrets, `Signer`, `ChangePassphrase`, PEM helpers |
-| `pkg/agent/` | public library: the signing agent server and its `crypto.Signer` client (v0.3.0) |
+| `pkg/agent/` | public library: the signing agent server and its `crypto.Signer` client |
 | `internal/kdf/` | argon2id parameters, bounds and key derivation |
 | `internal/seal/` | AES-256-GCM seal/open and the associated-data encoding |
 | `internal/ringfile/` | JSON schema, validation, locking, atomic durable writes |
@@ -53,9 +54,9 @@ handed to the process that uses it.
 | `internal/passphrase/` | passphrase sources and the establishment policy |
 | `internal/term/` | no-echo prompt and terminal detection |
 | `internal/keychain/` | macOS Keychain passphrase source |
-| `internal/peercred/` | unix-socket peer credentials (v0.3.0) |
+| `internal/peercred/` | unix-socket peer credentials |
 | `cmd/keystore/` | the CLI |
-| `cmd/keystore-agent/` | the signing agent daemon (v0.3.0) |
+| `cmd/keystore-agent/` | the signing agent daemon |
 | `examples/` | runnable integration scenarios |
 | `testdata/` | golden ring fixtures that pin the format |
 | `build/keystore` | build and packaging script |
