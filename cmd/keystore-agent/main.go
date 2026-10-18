@@ -17,6 +17,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/netstar-labs/keystore/internal/passphrase"
+	"github.com/netstar-labs/keystore/internal/term"
 	"github.com/netstar-labs/keystore/pkg/agent"
 	"github.com/netstar-labs/keystore/pkg/keystore"
 )
@@ -34,13 +36,19 @@ var version, build = "dev", "none"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "keystore-agent:", err)
+		fmt.Fprintln(os.Stderr, "keystore-agent:", term.Clean(err.Error())) // errors can quote operator-supplied paths
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
 	fs := flag.NewFlagSet("keystore-agent", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // an unknown flag name is echoed verbatim; main prints the error cleaned
+	fs.Usage = func() {
+		fs.SetOutput(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Usage of keystore-agent:")
+		fs.PrintDefaults()
+	}
 	ring := fs.String("keystore", os.Getenv("KEYSTORE_FILE"), "ring file (env KEYSTORE_FILE)")
 	id := fs.String("id", "", "signing key id (default: the ring's current key)")
 	sock := fs.String("sock", "", "unix socket path; its directory must be 0700 and yours (required)")
@@ -115,7 +123,7 @@ func run(args []string) error {
 		kid = k.CurrentID()
 	}
 	log.Printf("keystore-agent: serving %s (%s) on %s; ttl %v, idle %v; key in memory only",
-		kid, keystore.Fingerprint(priv.Public().(ed25519.PublicKey)), sockPath, *ttl, *idle)
+		kid, keystore.Fingerprint(priv.Public().(ed25519.PublicKey)), term.Clean(sockPath), *ttl, *idle)
 	err = srv.Serve(ln)
 	if errors.Is(err, agent.ErrExpired) {
 		log.Printf("keystore-agent: ttl or idle limit reached; stopping")
