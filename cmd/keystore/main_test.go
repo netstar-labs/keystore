@@ -5,11 +5,13 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/internal/passphrase"
@@ -297,5 +299,205 @@ func TestImportKeySizeCap(t *testing.T) {
 	os.WriteFile(big, bytes.Repeat([]byte("A"), 128<<10), 0o600)
 	if _, _, err := cli(t, "import", "-keystore", r, "-id", "x", "-key", big); err == nil || !strings.Contains(err.Error(), "too large") {
 		t.Fatalf("oversize key file: %v", err)
+	}
+}
+
+// `export-priv > key.pem` lets the shell create the file at the umask mode (0644 under
+// the usual 022) before keystore runs, so the plaintext key landed in a file others
+// could read: the terminal guard did not cover it and only -o enforces 0600.
+func TestExportRefusesRedirectToAFileOthersCanRead(t *testing.T) {
+	r := ring(t)
+	if _, _, err := cli(t, "keygen", "-keystore", r, "-id", "a"); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range [][]string{{"export-priv", "-keystore", r}, {"export-secret", "-keystore", r}} {
+		if verb[0] == "export-secret" {
+			if _, _, err := cli(t, "add-secret", "-keystore", r, "-id", "s"); err != nil {
+				t.Fatal(err)
+			}
+			verb = append(verb, "-id", "s")
+		}
+		for _, tc := range []struct {
+			mode  os.FileMode
+			force bool
+			ok    bool
+		}{
+			{0o644, false, false}, {0o640, false, false}, {0o604, false, false},
+			{0o620, false, false}, {0o602, false, false}, // writable by others is not private either
+			{0o600, false, true}, {0o400 | 0o200, false, true},
+			{0o644, true, true}, // -force is the same deliberate override as for a terminal
+		} {
+			f, err := os.CreateTemp(t.TempDir(), "redir")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Chmod(tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string(nil), verb...)
+			if tc.force {
+				args = append(args, "-force")
+			}
+			var errb bytes.Buffer
+			err = run(args, &stdio{in: strings.NewReader(""), out: f, err: &errb, inFile: nil, outFile: f})
+			st, _ := f.Stat()
+			f.Close()
+			if tc.ok && err != nil {
+				t.Errorf("%s into a %04o file (force=%v): %v", verb[0], tc.mode, tc.force, err)
+			}
+			if !tc.ok {
+				if err == nil || !strings.Contains(err.Error(), "others can read") {
+					t.Errorf("%s into a %04o file: err = %v, want a refusal", verb[0], tc.mode, err)
+				}
+				if st.Size() != 0 {
+					t.Errorf("%s wrote %d bytes into a refused %04o file", verb[0], st.Size(), tc.mode)
+				}
+			}
+		}
+	}
+	// With -o the key goes to that file (0600), so what stdout is does not matter.
+	loose, _ := os.CreateTemp(t.TempDir(), "loose")
+	loose.Chmod(0o644)
+	out := filepath.Join(t.TempDir(), "k.pem")
+	if err := run([]string{"export-priv", "-keystore", r, "-o", out}, &stdio{in: strings.NewReader(""), out: loose, err: io.Discard, outFile: loose}); err != nil {
+		t.Errorf("-o with a loose stdout refused: %v", err)
+	}
+	loose.Close()
+	// A pipe has no mode to check: the user chose where the bytes go.
+	pr, pw, _ := os.Pipe()
+	defer pr.Close()
+	defer pw.Close()
+	if err := run([]string{"export-priv", "-keystore", r}, &stdio{in: strings.NewReader(""), out: pw, err: io.Discard, outFile: pw}); err != nil {
+		t.Errorf("export-priv into a pipe refused: %v", err)
+	}
+}
+
+// A file name the operator's script passes through can carry terminal control sequences
+// (recolour, retitle, a carriage return back over the line start to forge a "keystore:
+// verified" line, a bidi override that reorders the rest of the line). Nothing the CLI
+// prints may let them act: not in a failure message, and not in the success-path lines
+// that echo an output or input path either.
+const hostile = "a\x1b[31m\x1b]0;pwned\x07\rkeystore: verified: SHA256:fake\x7f\u009b\u202e\u2028b"
+
+func assertInert(t *testing.T, what, text string) {
+	t.Helper()
+	for _, r := range text {
+		if r != '\n' && r != '\t' && !unicode.IsPrint(r) { // layout of the usage text is ours
+			t.Errorf("%s: terminal-active rune %U survives in %q", what, r, text)
+			return
+		}
+	}
+}
+
+func TestOneLineNeutralisesControlCharacters(t *testing.T) {
+	got := oneLine(fmt.Errorf("open %s: no such file or directory", hostile+"\xff"))
+	assertInert(t, "oneLine", got)
+	if !strings.Contains(got, "no such file or directory") || !strings.HasPrefix(got, "keystore: ") {
+		t.Errorf("message mangled: %q", got)
+	}
+}
+
+func TestSuccessLinesEchoNoTerminalControls(t *testing.T) {
+	r, _, msg := signFixture(t)
+	dir := t.TempDir()
+
+	_, errOut, err := cli(t, "sign", "-keystore", r, "-in", msg, "-o", filepath.Join(dir, hostile+".sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "sign -o", errOut)
+
+	_, errOut, err = cli(t, "export-priv", "-keystore", r, "-o", filepath.Join(dir, hostile+".pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "export-priv -o", errOut)
+
+	_, priv, _ := ed25519.GenerateKey(nil)
+	pemB, _ := keystore.MarshalPrivateKeyPEM(priv)
+	kf := filepath.Join(dir, hostile+".in")
+	if err := os.WriteFile(kf, pemB, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, err = cli(t, "import", "-keystore", r, "-id", "b", "-key", kf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "import -key", errOut)
+}
+
+func TestInitAndPasswdEchoNoTerminalControls(t *testing.T) {
+	t.Setenv("KEYSTORE_PASSPHRASE", testPass)
+	_, errOut, err := cli(t, "init", "-keystore", filepath.Join(t.TempDir(), hostile+".ks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "init", errOut)
+
+	r, _, _ := signFixture(t)
+	t.Setenv("KEYSTORE_NEW_PASSPHRASE", "a different long passphrase")
+	t.Setenv("KEYSTORE_KEYCHAIN", hostile) // names the item the operator keeps the passphrase in
+	_, errOut, err = cli(t, "passwd", "-keystore", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "keychain-set -service") {
+		t.Fatalf("passwd did not print the keychain note: %q", errOut)
+	}
+	assertInert(t, "passwd note", errOut)
+}
+
+// The flag package echoes an unknown flag name verbatim, and a script that lets a file
+// name become a flag token (`keystore sign "$f"`) hands it attacker bytes. Both copies of
+// the message (the flag package's own, and the usage error main prints) must be inert.
+func TestUnknownFlagNameIsInert(t *testing.T) {
+	_, errOut, err := cli(t, "sign", "-"+hostile)
+	if err == nil || !isUsage(err) {
+		t.Fatalf("err = %v, want a usage error", err)
+	}
+	assertInert(t, "flag package output", errOut)
+	var b bytes.Buffer
+	if code := report(&b, err); code != 2 {
+		t.Errorf("report code %d, want 2", code)
+	}
+	assertInert(t, "usage error line", b.String())
+}
+
+// A newline inside an unknown flag name used to start a new line of the flag package's
+// own message, so a name beginning with '-' could forge a whole "keystore: verified" line.
+func TestNewlineInFlagNameCannotForgeALine(t *testing.T) {
+	_, errOut, err := cli(t, "sign", "-a\nkeystore: verified: SHA256:FORGED")
+	if err == nil || !isUsage(err) {
+		t.Fatalf("err = %v, want a usage error", err)
+	}
+	var b bytes.Buffer
+	report(&b, err)
+	for _, text := range []string{errOut, b.String()} {
+		for _, line := range strings.Split(text, "\n") {
+			if strings.HasPrefix(line, "keystore: verified") {
+				t.Errorf("forged line %q in %q", line, text)
+			}
+		}
+	}
+	if !strings.Contains(errOut, "-keystore") {
+		t.Errorf("usage text no longer printed for a mistyped flag: %q", errOut)
+	}
+}
+
+func TestReportExitCodesAndCleaning(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code int
+	}{
+		{nil, 0},
+		{flag.ErrHelp, 0},
+		{usageError("bad " + hostile), 2},
+		{errors.New("open " + hostile + ": no such file"), 1},
+	} {
+		var b bytes.Buffer
+		if code := report(&b, tc.err); code != tc.code {
+			t.Errorf("report(%v) = %d, want %d", tc.err, code, tc.code)
+		}
+		assertInert(t, "report", b.String())
 	}
 }
