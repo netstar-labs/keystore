@@ -495,12 +495,12 @@ func TestParseEntriesShapes(t *testing.T) {
 			}
 		})
 	}
-	// Every occurrence of a duplicated `entries` key is validated: the old decode merged
-	// the later array into the earlier slice and never looked at an earlier invalid one.
+	// A valid ring with a second `entries` key appended is rejected for the duplicate key,
+	// whatever the second array holds (here one invalid element).
 	dup := strings.TrimSpace(string(good))
 	dup = dup[:len(dup)-1] + `,"entries":[{}]}`
 	if _, err := Parse([]byte(dup)); !errors.Is(err, ErrBadFormat) {
-		t.Fatalf("duplicate entries key with an invalid occurrence: %v", err)
+		t.Fatalf("valid ring plus a second entries key: %v", err)
 	}
 	// A second `entries` key is rejected outright (even an empty one, in any case): each
 	// occurrence cost a fresh Decoder, so 16 MiB of `"entries":[],` was accepted at ~1.9 s
