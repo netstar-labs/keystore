@@ -34,9 +34,14 @@ func readFrame(r io.Reader) (byte, []byte, error) {
 	if n > MaxPayload {
 		return 0, nil, ErrTooLarge
 	}
-	p := make([]byte, n)
-	if _, err := io.ReadFull(r, p); err != nil {
+	// Grow with the bytes that arrive rather than trusting the peer's length: a stalled
+	// connection claiming 1 MiB must not pin 1 MiB until the deadline.
+	p, err := io.ReadAll(io.LimitReader(r, int64(n)))
+	if err != nil {
 		return 0, nil, err
+	}
+	if len(p) != int(n) {
+		return 0, nil, io.ErrUnexpectedEOF
 	}
 	return hdr[0], p, nil
 }
