@@ -73,8 +73,8 @@ no-echo prompt. A **12-character minimum** applies whenever a passphrase is esta
 4. Cooperating processes (those that take `<ring>.lock`) cannot lose each other's writes.
    The lock is advisory; a process that ignores it can race.
 5. One passphrase per ring, enforced.
-6. No secret material on argv, and none written to a terminal or an existing file by
-   accident.
+6. No secret material on argv, and none written to a terminal, an existing file, or a
+   redirected stdout file that others can read by accident (a pipe is not checked).
 7. A crafted ring cannot cause an unbounded allocation or a zero-cost KDF.
 
 ### Platforms

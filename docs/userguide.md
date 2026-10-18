@@ -161,8 +161,11 @@ sig, err := s.Sign(nil, msg, crypto.Hash(0))
 
 `export-priv` exists for backup and migration. It writes PKCS#8 PEM to `-o FILE`, which is
 created new with mode 0600 and never follows a symlink. An existing file is refused unless
-`-force`, which replaces it atomically. Without `-o`, it refuses to print to a terminal unless
-`-force`.
+`-force`, which replaces it atomically. Without `-o`, it refuses to print to a terminal, or to a
+regular file on stdout that group or others can read (`export-priv > key.pem` makes the shell
+create that file at the umask mode, 0644 under the usual 022), unless `-force`; use `-o FILE`, or
+`chmod 600` the file first. A pipe has no mode to check, so `export-priv | tee key.pem` is not
+covered.
 
 ## Files
 

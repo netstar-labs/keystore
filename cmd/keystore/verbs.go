@@ -281,7 +281,7 @@ func setupExportPub(fs *flag.FlagSet, s *stdio) func() error {
 func setupExportPriv(fs *flag.FlagSet, s *stdio) func() error {
 	ring, pf, id := ringFlag(fs), passfileFlag(fs), idFlag(fs, false)
 	out := fs.String("o", "", "write to this new file (0600); default stdout")
-	force := fs.Bool("force", false, "replace an existing -o file, or allow writing to a terminal")
+	force := fs.Bool("force", false, "replace an existing -o file, or allow writing to a terminal or a file others can read")
 	return func() error {
 		k, err := keystore.Open(*ring)
 		if err != nil {

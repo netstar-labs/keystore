@@ -120,7 +120,7 @@ func readLimited(path string, limit int64) ([]byte, error) {
 func setupExportSecret(fs *flag.FlagSet, s *stdio) func() error {
 	ring, pf, id := ringFlag(fs), passfileFlag(fs), idFlag(fs, true)
 	out := fs.String("o", "", "write to this new file (0600); default stdout")
-	force := fs.Bool("force", false, "replace an existing -o file, or allow writing to a terminal")
+	force := fs.Bool("force", false, "replace an existing -o file, or allow writing to a terminal or a file others can read")
 	return func() error {
 		if err := need("id", *id); err != nil {
 			return err

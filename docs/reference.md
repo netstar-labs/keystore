@@ -87,7 +87,7 @@ write a private key as PKCS#8 PEM, for backup or migration (guarded)
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `-force` | replace an existing -o file, or allow writing to a terminal | — |
+| `-force` | replace an existing -o file, or allow writing to a terminal or a file others can read | — |
 | `-id` | entry id (default: the current signing key) | — |
 | `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
 | `-o` | write to this new file (0600); default stdout | — |
@@ -120,7 +120,7 @@ write a secret as base64 (guarded)
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `-force` | replace an existing -o file, or allow writing to a terminal | — |
+| `-force` | replace an existing -o file, or allow writing to a terminal or a file others can read | — |
 | `-id` | entry id (required) | — |
 | `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
 | `-o` | write to this new file (0600); default stdout | — |

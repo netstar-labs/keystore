@@ -302,6 +302,76 @@ func TestImportKeySizeCap(t *testing.T) {
 	}
 }
 
+// `export-priv > key.pem` lets the shell create the file at the umask mode (0644 under
+// the usual 022) before keystore runs, so the plaintext key landed in a file others
+// could read: the terminal guard did not cover it and only -o enforces 0600.
+func TestExportRefusesRedirectToAFileOthersCanRead(t *testing.T) {
+	r := ring(t)
+	if _, _, err := cli(t, "keygen", "-keystore", r, "-id", "a"); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range [][]string{{"export-priv", "-keystore", r}, {"export-secret", "-keystore", r}} {
+		if verb[0] == "export-secret" {
+			if _, _, err := cli(t, "add-secret", "-keystore", r, "-id", "s"); err != nil {
+				t.Fatal(err)
+			}
+			verb = append(verb, "-id", "s")
+		}
+		for _, tc := range []struct {
+			mode  os.FileMode
+			force bool
+			ok    bool
+		}{
+			{0o644, false, false}, {0o640, false, false}, {0o604, false, false},
+			{0o620, false, false}, {0o602, false, false}, // writable by others is not private either
+			{0o600, false, true}, {0o400 | 0o200, false, true},
+			{0o644, true, true}, // -force is the same deliberate override as for a terminal
+		} {
+			f, err := os.CreateTemp(t.TempDir(), "redir")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Chmod(tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string(nil), verb...)
+			if tc.force {
+				args = append(args, "-force")
+			}
+			var errb bytes.Buffer
+			err = run(args, &stdio{in: strings.NewReader(""), out: f, err: &errb, inFile: nil, outFile: f})
+			st, _ := f.Stat()
+			f.Close()
+			if tc.ok && err != nil {
+				t.Errorf("%s into a %04o file (force=%v): %v", verb[0], tc.mode, tc.force, err)
+			}
+			if !tc.ok {
+				if err == nil || !strings.Contains(err.Error(), "others can read") {
+					t.Errorf("%s into a %04o file: err = %v, want a refusal", verb[0], tc.mode, err)
+				}
+				if st.Size() != 0 {
+					t.Errorf("%s wrote %d bytes into a refused %04o file", verb[0], st.Size(), tc.mode)
+				}
+			}
+		}
+	}
+	// With -o the key goes to that file (0600), so what stdout is does not matter.
+	loose, _ := os.CreateTemp(t.TempDir(), "loose")
+	loose.Chmod(0o644)
+	out := filepath.Join(t.TempDir(), "k.pem")
+	if err := run([]string{"export-priv", "-keystore", r, "-o", out}, &stdio{in: strings.NewReader(""), out: loose, err: io.Discard, outFile: loose}); err != nil {
+		t.Errorf("-o with a loose stdout refused: %v", err)
+	}
+	loose.Close()
+	// A pipe has no mode to check: the user chose where the bytes go.
+	pr, pw, _ := os.Pipe()
+	defer pr.Close()
+	defer pw.Close()
+	if err := run([]string{"export-priv", "-keystore", r}, &stdio{in: strings.NewReader(""), out: pw, err: io.Discard, outFile: pw}); err != nil {
+		t.Errorf("export-priv into a pipe refused: %v", err)
+	}
+}
+
 // A file name the operator's script passes through can carry terminal control sequences
 // (recolour, retitle, a carriage return back over the line start to forge a "keystore:
 // verified" line, a bidi override that reorders the rest of the line). Nothing the CLI
