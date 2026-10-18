@@ -14,11 +14,19 @@ import (
 // isTerminal is a variable so tests can exercise the terminal guard without a TTY.
 var isTerminal = func(f *os.File) bool { return term.IsTerminal(f.Fd()) }
 
-// guardTerminal refuses to send secret material to a terminal on stdout unless forced.
-// Callers run it before asking for the passphrase, so a refusal costs nothing.
+// guardTerminal refuses to send secret material to stdout when stdout is a terminal, or a
+// regular file that others can read (`export-priv > key.pem`: the shell creates that file
+// at the umask mode before we run), unless forced. A pipe has no mode to check. Callers
+// run it before asking for the passphrase, so a refusal costs nothing.
 func guardTerminal(s *stdio, out string, force bool, what string) error {
-	if out == "" && !force && s.outFile != nil && isTerminal(s.outFile) {
+	if out != "" || force || s.outFile == nil {
+		return nil
+	}
+	if isTerminal(s.outFile) {
 		return fmt.Errorf("keystore: refusing to write %s to a terminal (use -o FILE, or -force)", what)
+	}
+	if st, err := s.outFile.Stat(); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("keystore: refusing to write %s to a file others can read (mode %04o); use -o FILE, chmod 600 it first, or -force", what, st.Mode().Perm())
 	}
 	return nil
 }
@@ -32,7 +40,7 @@ func emit(s *stdio, path string, force bool, b []byte, form string) error {
 	if err := writeSecretFile(path, b, force); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.err, "wrote %s (%s, 0600)\n", path, form)
+	fmt.Fprintf(s.err, "wrote %s (%s, 0600)\n", term.Clean(path), form)
 	return nil
 }
 

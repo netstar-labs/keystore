@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -510,6 +511,27 @@ func TestRejectedPeerLogLineIsClean(t *testing.T) {
 	}
 }
 
+// When the peer's uid cannot be looked up at all, the log says that (the uid is meaningless
+// then) and carries the error, rather than a mismatch line with a made-up uid.
+func TestPeerUIDLookupFailureIsLoggedAsSuch(t *testing.T) {
+	logged := make(chan string, 4)
+	r := start(t, func(s *Server) {
+		s.uidOf = func(*net.UnixConn) (int, error) { return 0, errors.New("no credentials for this peer") }
+		s.Log = func(format string, args ...any) { logged <- fmt.Sprintf(format, args...) }
+	})
+	if _, err := Dial(r.sock); err == nil {
+		t.Fatal("agent served a peer whose uid could not be established")
+	}
+	select {
+	case line := <-logged:
+		if !strings.Contains(line, "lookup failed") || !strings.Contains(line, "no credentials for this peer") || strings.Contains(line, "want") {
+			t.Errorf("log line %q: want a lookup-failure line carrying the error", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("lookup failure was not logged")
+	}
+}
+
 // The directory error printed Perm() with %v (-rwxr-xr-x) beside a message saying 0700.
 func TestSocketDirErrorShowsOctalMode(t *testing.T) {
 	dir := sockDir(t)
@@ -549,5 +571,68 @@ func TestClientQuotesTheAgentsErrorText(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error lost the agent's message: %q", err)
+	}
+}
+
+// A socket path longer than sun_path used to fail inside bind with "invalid argument"
+// (naming no limit), after the path's lock file had already been created and left behind.
+func TestListenRejectsTooLongPathWithoutSideEffects(t *testing.T) {
+	dir := sockDir(t)
+	long := filepath.Join(dir, strings.Repeat("s", 200)+".sock")
+	_, err := Listen(long)
+	if err == nil {
+		t.Fatal("Listen accepted a path longer than sun_path")
+	}
+	if !strings.Contains(err.Error(), "at most") {
+		t.Errorf("error does not name the limit: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("rejected path left files behind: %v", left)
+	}
+	// The longest path that fits still works, and one byte more is refused (sun_path
+	// holds the NUL too): a limit one too high would fail in bind with "invalid argument"
+	// and leave the lock file behind, which is the original bug.
+	max := len(syscall.RawSockaddrUnix{}.Path) - 1
+	over := filepath.Join(dir, strings.Repeat("s", max+1-len(dir)-1))
+	if len(over) != max+1 {
+		t.Fatalf("test setup: path is %d bytes, want %d", len(over), max+1)
+	}
+	if _, err := Listen(over); err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Errorf("a path of %d bytes: err = %v, want the limit error", max+1, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("max+1 path left files behind: %v", left)
+	}
+	fits := filepath.Join(dir, strings.Repeat("s", max-len(dir)-1))
+	ln, err := Listen(fits)
+	if err != nil {
+		t.Fatalf("a path of exactly %d bytes was refused: %v", max, err)
+	}
+	ln.Close()
+}
+
+// Listen narrows the process umask around bind so the socket is never reachable by
+// others. Unserialised, concurrent calls interleaved set and restore, so a later
+// "restore" wrote back another goroutine's temporary 0177 and the process kept it.
+func TestConcurrentListenRestoresUmask(t *testing.T) {
+	old := syscall.Umask(0o022)
+	t.Cleanup(func() { syscall.Umask(old) })
+	dir := sockDir(t)
+	for round := 0; round < 50; round++ {
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				ln, err := Listen(filepath.Join(dir, fmt.Sprintf("s%d.sock", i)))
+				if err == nil {
+					ln.Close()
+				}
+			}(i)
+		}
+		wg.Wait()
+		if got := syscall.Umask(0o022); got != 0o022 {
+			t.Fatalf("round %d: umask left at %#o, want 022", round, got)
+		}
 	}
 }

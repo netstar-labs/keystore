@@ -16,8 +16,9 @@ five working days.
   key or forge a signature under a key you did not create.
 - Cooperating writers (processes that take `<ring>.lock`) and crashes cannot lose or corrupt
   entries.
-- Secret material is never accepted on the command line and never written to a terminal or an
-  existing file by accident.
+- Secret material is never accepted on the command line and never written to a terminal, an
+  existing file, or a redirected stdout file that others can read by accident (a pipe cannot be
+  checked, so `export-priv | tee` is on you).
 
 ## What it does not protect
 

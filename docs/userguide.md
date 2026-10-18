@@ -143,7 +143,7 @@ environment once read, but the copy in the environment block it was started with
 readable by the same user (`ps eww`, `/proc/PID/environ`). The agent has no default ring:
 `-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required. The socket's directory must
 already exist, be yours and mode 0700, and the whole socket path must fit the operating system's
-limit (about 104 bytes on macOS, 108 on Linux) or the agent exits with `bind: invalid argument`.
+limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
 It stops — removing the socket — on SIGINT/SIGTERM, after `-ttl` (a hard stop), or after
 `-idle` without a successful request (any successful request counts, including a public-key
 fetch); `0` disables either and a negative value is refused. A second agent will not take
@@ -161,8 +161,11 @@ sig, err := s.Sign(nil, msg, crypto.Hash(0))
 
 `export-priv` exists for backup and migration. It writes PKCS#8 PEM to `-o FILE`, which is
 created new with mode 0600 and never follows a symlink. An existing file is refused unless
-`-force`, which replaces it atomically. Without `-o`, it refuses to print to a terminal unless
-`-force`.
+`-force`, which replaces it atomically. Without `-o`, it refuses to print to a terminal, or to a
+regular file on stdout that group or others can read (`export-priv > key.pem` makes the shell
+create that file at the umask mode, 0644 under the usual 022), unless `-force`; use `-o FILE`, or
+`chmod 600` the file first. A pipe has no mode to check, so `export-priv | tee key.pem` is not
+covered.
 
 ## Files
 

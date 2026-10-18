@@ -357,6 +357,62 @@ func TestSymlinkedRingPath(t *testing.T) {
 	}
 }
 
+// A 64-byte key whose public half is not the seed's would store a public key with no
+// private key behind it; Import refuses it and leaves the ring untouched.
+func TestImportInconsistentKey(t *testing.T) {
+	_, good, _ := ed25519.GenerateKey(nil)
+	other, _, _ := ed25519.GenerateKey(nil)
+	bad := append(ed25519.PrivateKey(nil), good...)
+	copy(bad[32:], other) // seed of good, public half of another key
+
+	// One flipped bit anywhere in the 64 bytes makes the halves disagree, including the
+	// first and last byte of the public half (a comparison that stops one byte short would
+	// miss them).
+	variants := map[string]ed25519.PrivateKey{"whole public half": bad}
+	for _, i := range []int{0, 31, 32, 63} {
+		v := append(ed25519.PrivateKey(nil), good...)
+		v[i] ^= 1
+		variants[fmt.Sprintf("flip byte %d", i)] = v
+	}
+	for name, key := range variants {
+		for _, seeded := range []bool{false, true} {
+			k, path := newRing(t)
+			if seeded {
+				if _, err := k.Add("a", pass); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, _ := os.ReadFile(path)
+			if err := k.Import("bad", key, pass); err == nil {
+				t.Fatalf("%s, seeded=%v: Import accepted a key whose halves disagree", name, seeded)
+			}
+			after, _ := os.ReadFile(path)
+			if !bytes.Equal(before, after) {
+				t.Fatalf("%s, seeded=%v: refused Import changed the ring file", name, seeded)
+			}
+		}
+	}
+}
+
+func TestImportConsistentKeys(t *testing.T) {
+	_, generated, _ := ed25519.GenerateKey(nil)
+	fromSeed := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+	k, _ := newRing(t)
+	for id, priv := range map[string]ed25519.PrivateKey{"gen": generated, "seed": fromSeed} {
+		if err := k.Import(id, priv, pass); err != nil {
+			t.Fatalf("Import(%s): %v", id, err)
+		}
+		s, err := k.Signer(id, pass)
+		if err != nil {
+			t.Fatalf("Signer(%s): %v", id, err)
+		}
+		sig, err := s.Sign(nil, []byte("m"), &ed25519.Options{})
+		if err != nil || !ed25519.Verify(priv.Public().(ed25519.PublicKey), []byte("m"), sig) {
+			t.Fatalf("%s: imported key does not sign verifiably: %v", id, err)
+		}
+	}
+}
+
 // An empty passphrase would make a ring any copy-holder can open; every path that
 // establishes one refuses it, as ChangePassphrase does, and leaves the file untouched.
 func TestEmptyPassphraseRefused(t *testing.T) {
