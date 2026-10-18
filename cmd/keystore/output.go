@@ -43,10 +43,16 @@ func emit(s *stdio, path string, force bool, b []byte, form string) error {
 // replaced by temp-and-rename, so the old file's mode never applies. A symlink at path
 // is refused even with force.
 func writeSecretFile(path string, b []byte, force bool) error {
+	return writeFile(path, b, 0o600, force)
+}
+
+// writeFile is writeSecretFile with an explicit mode, for public outputs such as
+// signatures.
+func writeFile(path string, b []byte, mode os.FileMode, force bool) error {
 	st, err := os.Lstat(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return writeNew(path, b)
+		return writeNew(path, b, mode)
 	case err != nil:
 		return err
 	case st.Mode()&fs.ModeSymlink != 0:
@@ -56,11 +62,11 @@ func writeSecretFile(path string, b []byte, force bool) error {
 	case !st.Mode().IsRegular():
 		return fmt.Errorf("keystore: %s is not a regular file", path)
 	}
-	return replace(path, b)
+	return replace(path, b, mode)
 }
 
-func writeNew(path string, b []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+func writeNew(path string, b []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, mode)
 	if err != nil {
 		return err
 	}
@@ -76,14 +82,14 @@ func writeNew(path string, b []byte) error {
 	return f.Close()
 }
 
-func replace(path string, b []byte) error {
+func replace(path string, b []byte, mode os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
 	tmp := f.Name()
 	defer os.Remove(tmp) // no-op after a successful rename
-	if err := f.Chmod(0o600); err != nil {
+	if err := f.Chmod(mode); err != nil {
 		f.Close()
 		return err
 	}

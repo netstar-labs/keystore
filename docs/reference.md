@@ -143,3 +143,28 @@ store the ring passphrase in the macOS login keychain (security prompts for it)
 | Flag | Meaning | Default |
 |---|---|---|
 | `-service` | keychain service name (use it as KEYSTORE_KEYCHAIN) | keystore |
+
+## `sign`
+
+sign up to 1 MiB from -in FILE or stdin with a ring key or an agent; prints a base64 signature
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-agent` | sign through the agent at this socket instead of unlocking the ring | — |
+| `-force` | replace an existing -o file | — |
+| `-id` | entry id (default: the current signing key) | — |
+| `-in` | message file; - for stdin | - |
+| `-keystore` | ring file (env KEYSTORE_FILE) | $KEYSTORE_FILE, else ~/.config/keystore/default.ks |
+| `-o` | write the signature to this new file; default stdout | — |
+| `-passfile` | read the passphrase from this file (0600, owned by you) | — |
+| `-raw` | write the 64 raw signature bytes instead of base64 | — |
+
+## `verify`
+
+verify a signature over -in FILE or stdin with a public key PEM; no ring needed
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-in` | message file; - for stdin | - |
+| `-pub` | public key, SPKI PEM (required) | — |
+| `-sig` | signature file, base64 or 64 raw bytes (required) | — |
