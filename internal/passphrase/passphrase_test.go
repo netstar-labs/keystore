@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -219,4 +220,68 @@ func TestPassfileFIFODoesNotBlock(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("opening a FIFO passfile blocked")
 	}
+}
+
+func captureNotices(t *testing.T) *[]string {
+	t.Helper()
+	var got []string
+	old := Notice
+	t.Cleanup(func() { Notice = old })
+	Notice = func(s string) { got = append(got, s) }
+	return &got
+}
+
+// An explicit -passfile loses to the environment variable (the documented order), which
+// let a stale KEYSTORE_PASSPHRASE silently establish a ring under a passphrase the
+// operator did not mean (decision 16: an explicit source must not degrade invisibly).
+// The order is unchanged; the shadowing is now announced.
+func TestShadowedPassfileIsAnnounced(t *testing.T) {
+	pf := passfile(t, "the passfile passphrase", 0o600)
+	t.Run("env shadows passfile", func(t *testing.T) {
+		notes := captureNotices(t)
+		t.Setenv(EnvVar, "the environment passphrase")
+		pw, err := New(pf)
+		if err != nil || string(pw) != "the environment passphrase" {
+			t.Fatalf("precedence changed: %q, %v", pw, err)
+		}
+		if len(*notes) != 1 || !strings.Contains((*notes)[0], EnvVar) || !strings.Contains((*notes)[0], "-passfile") {
+			t.Errorf("notices = %q, want one naming %s and -passfile", *notes, EnvVar)
+		}
+	})
+	t.Run("replacement env shadows new-passfile", func(t *testing.T) {
+		notes := captureNotices(t)
+		t.Setenv(NewEnvVar, "the new environment passphrase")
+		if _, err := Replacement(pf); err != nil {
+			t.Fatal(err)
+		}
+		if len(*notes) != 1 || !strings.Contains((*notes)[0], NewEnvVar) {
+			t.Errorf("notices = %q, want one naming %s", *notes, NewEnvVar)
+		}
+	})
+	t.Run("keychain shadows passfile", func(t *testing.T) {
+		notes := captureNotices(t)
+		oldKC := Keychain
+		t.Cleanup(func() { Keychain = oldKC })
+		Keychain = func(string) ([]byte, error) { return []byte("the keychain passphrase"), nil }
+		t.Setenv(KeychainVar, "svc")
+		if _, err := Unlock(pf); err != nil {
+			t.Fatal(err)
+		}
+		if len(*notes) != 1 || !strings.Contains((*notes)[0], KeychainVar) {
+			t.Errorf("notices = %q, want one naming %s", *notes, KeychainVar)
+		}
+	})
+	t.Run("nothing shadowed, nothing said", func(t *testing.T) {
+		notes := captureNotices(t)
+		if _, err := New(pf); err != nil { // passfile alone
+			t.Fatal(err)
+		}
+		t.Setenv(EnvVar, "the environment passphrase")
+		if _, err := New(""); err != nil { // env alone
+			t.Fatal(err)
+		}
+		if len(*notes) != 0 {
+			t.Errorf("unexpected notices: %q", *notes)
+		}
+	})
 }

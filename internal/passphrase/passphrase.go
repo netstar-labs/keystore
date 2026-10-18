@@ -53,6 +53,9 @@ var Prompt = term.ReadPassword
 // Keychain reads a passphrase from the keychain; tests replace it.
 var Keychain = keychain.Get
 
+// Notice reports that an explicitly given source was passed over; tests replace it.
+var Notice = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+
 type sources struct {
 	env      string
 	keychain bool
@@ -115,9 +118,11 @@ func establish(src sources, passfile string) ([]byte, error) {
 
 func resolve(src sources, passfile string) (pw []byte, prompted bool, err error) {
 	if v, ok := os.LookupEnv(src.env); ok && v != "" {
+		shadowed(passfile, src.env)
 		return []byte(v), false, nil
 	}
 	if svc := os.Getenv(KeychainVar); src.keychain && svc != "" {
+		shadowed(passfile, KeychainVar)
 		pw, err := Keychain(svc)
 		if err != nil {
 			return nil, false, fmt.Errorf("%s=%s: %w", KeychainVar, svc, err)
@@ -135,6 +140,15 @@ func resolve(src sources, passfile string) (pw []byte, prompted bool, err error)
 // readPassfile reads a passfile after checking, on the open descriptor, that it is a
 // regular file owned by the caller with no group or other permissions. One trailing
 // newline (LF or CRLF) is removed.
+// shadowed announces that an explicit -passfile is being ignored because a source that
+// outranks it is set. The order is documented, but a stale variable in the environment
+// silently outranking a flag the operator typed hides a misconfiguration (decision 16).
+func shadowed(passfile, by string) {
+	if passfile != "" {
+		Notice(fmt.Sprintf("keystore: note: %s is set, so -passfile is ignored", by))
+	}
+}
+
 func readPassfile(path string) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) // a FIFO must not block the open
 	if err != nil {
