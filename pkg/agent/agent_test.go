@@ -334,3 +334,42 @@ func TestCloseEndsPersistentConnection(t *testing.T) {
 		t.Fatal("Serve blocked on an open connection after Close")
 	}
 }
+
+// Regression (review F4): two agents racing over a stale socket could both "win", the
+// second unlinking the first's fresh socket and orphaning an agent that holds the key.
+func TestConcurrentListenOneWinner(t *testing.T) {
+	dir := sockDir(t)
+	sock := filepath.Join(dir, "a.sock")
+	for trial := 0; trial < 2000; trial++ {
+		stale, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stale.SetUnlinkOnClose(false)
+		stale.Close()
+		type res struct {
+			ln  *Listener
+			err error
+		}
+		ch := make(chan res, 2)
+		for i := 0; i < 2; i++ {
+			go func() { ln, err := Listen(sock); ch <- res{ln, err} }()
+		}
+		a, b := <-ch, <-ch
+		won := 0
+		for _, r := range []res{a, b} {
+			if r.err == nil {
+				won++
+			}
+		}
+		if won != 1 {
+			t.Fatalf("trial %d: %d agents won the socket (errs: %v / %v)", trial, won, a.err, b.err)
+		}
+		for _, r := range []res{a, b} {
+			if r.ln != nil {
+				r.ln.Close()
+			}
+		}
+		os.Remove(sock)
+	}
+}

@@ -48,7 +48,7 @@ type Server struct {
 	uidOf func(*net.UnixConn) (int, error) // peer uid lookup; tests replace it
 
 	mu      sync.Mutex
-	ln      *net.UnixListener
+	ln      *Listener
 	conns   map[*net.UnixConn]struct{} // open connections, closed on stop
 	closed  bool                       // stopped by Close (possibly before Serve) or expiry
 	expired bool
@@ -64,13 +64,50 @@ func NewServer(signer crypto.Signer) (*Server, error) {
 	return &Server{signer: signer, pub: pub, IOTimeout: 5 * time.Second, uidOf: peercred.UID}, nil
 }
 
+// Listener is an agent socket plus the exclusive lock that owns its path.
+type Listener struct {
+	*net.UnixListener
+	lock *os.File
+}
+
+// Close closes the socket (removing it) and then releases the path lock.
+func (l *Listener) Close() error {
+	err := l.UnixListener.Close()
+	l.lock.Close() // closing the descriptor releases the flock
+	return err
+}
+
 // Listen creates the agent socket at path. The parent directory must be owned by the
-// caller and closed to group and others. An existing socket that a live agent answers
-// on is ErrInUse; a stale one is removed; anything else at path is refused.
-func Listen(path string) (*net.UnixListener, error) {
+// caller and closed to group and others.
+//
+// Ownership of the path is decided by an exclusive flock on path+".lock", held until the
+// listener is closed: a second agent — even one racing this one — gets ErrInUse and never
+// touches the socket. An existing socket that something still answers on is also
+// ErrInUse; a stale one is removed; anything else at path is refused.
+func Listen(path string) (*Listener, error) {
 	if err := checkDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
+	lock, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrInUse
+		}
+		return nil, err
+	}
+	ln, err := listenLocked(path)
+	if err != nil {
+		lock.Close()
+		return nil, err
+	}
+	return &Listener{UnixListener: ln, lock: lock}, nil
+}
+
+func listenLocked(path string) (*net.UnixListener, error) {
 	if st, err := os.Lstat(path); err == nil {
 		if st.Mode()&fs.ModeSocket == 0 {
 			return nil, fmt.Errorf("keystore agent: %s exists and is not a socket", path)
@@ -114,7 +151,7 @@ func checkDir(dir string) error {
 
 // Serve answers requests on ln until Close, or until TTL or Idle expires (then it
 // returns ErrExpired). The socket is removed when the listener closes.
-func (s *Server) Serve(ln *net.UnixListener) error {
+func (s *Server) Serve(ln *Listener) error {
 	s.mu.Lock()
 	if s.closed { // Close won the race with Serve
 		s.mu.Unlock()
