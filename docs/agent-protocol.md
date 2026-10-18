@@ -49,7 +49,7 @@ An unknown operation gets an error reply and the connection is closed.
 ## Lifetime
 
 `-ttl D` stops the agent `D` after start; `-idle D` stops it after `D` with no successful
-request. `0` disables either. On expiry, SIGINT or SIGTERM the agent closes the listener
+request. `0` disables either; a negative value is refused (exit 1). On expiry, SIGINT or SIGTERM the agent closes the listener
 (removing the socket) **and every open connection**, so a client holding a connection open
 cannot extend its life; it then waits for handlers to return (bounded by the deadline),
 clears the key, and exits 0.
