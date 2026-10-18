@@ -323,3 +323,35 @@ func childAdd() {
 	}
 	os.Exit(0)
 }
+
+// Regression (review F3): writing through a symlinked ring path replaced the symlink with
+// a new file, so the real ring silently stopped receiving changes, and the two spellings
+// took different locks.
+func TestSymlinkedRingPath(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.ks")
+	link := filepath.Join(dir, "link.ks")
+	if _, err := Create(real); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	k, err := Open(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Add("a", pass); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Lstat(link); st.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the symlink was replaced by a regular file")
+	}
+	kr, _ := Open(real)
+	if len(kr.List()) != 1 {
+		t.Fatalf("real ring has %d entries; the write went elsewhere", len(kr.List()))
+	}
+	if _, err := os.Stat(link + ".lock"); err == nil {
+		t.Fatal("lock taken on the link's name, not the real ring's")
+	}
+}

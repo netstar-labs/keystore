@@ -273,7 +273,14 @@ func Create(path string, f *File) error {
 // Update applies fn to a fresh read of the ring under the exclusive lock and writes the
 // result durably. If fn returns an error nothing is written. It returns the ring as
 // written.
+//
+// A symlinked path is resolved first, so the write lands in the real ring (not over the
+// link) and every spelling of the same ring shares one lock.
 func Update(path string, fn func(*File) error) (*File, error) {
+	path, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
 	release, err := Lock(path)
 	if err != nil {
 		return nil, err
