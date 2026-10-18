@@ -149,7 +149,7 @@ func checkDir(dir string) error {
 		return fmt.Errorf("keystore agent: socket directory %s is not owned by the current user", dir)
 	}
 	if st.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("keystore agent: socket directory %s is mode %v; it must be 0700", dir, st.Mode().Perm())
+		return fmt.Errorf("keystore agent: socket directory %s is mode %04o; it must be 0700", dir, st.Mode().Perm())
 	}
 	return nil
 }
@@ -303,7 +303,11 @@ func (s *Server) handle(c *net.UnixConn) {
 	defer c.Close()
 	uid, err := s.uidOf(c)
 	if err != nil || uid != os.Getuid() {
-		s.logf("rejected connection: peer uid %d (want %d) %v", uid, os.Getuid(), err)
+		if err != nil {
+			s.logf("rejected connection: peer uid lookup failed: %v", err)
+		} else {
+			s.logf("rejected connection: peer uid %d (want %d)", uid, os.Getuid())
+		}
 		return
 	}
 	for {
