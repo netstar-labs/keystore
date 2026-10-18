@@ -32,6 +32,8 @@ var (
 	// ErrExpired is returned by Serve when the agent stopped because its TTL or idle
 	// limit was reached.
 	ErrExpired = errors.New("keystore agent: lifetime or idle limit reached")
+	// errSocketLost is what Serve returns when the socket file was removed or replaced.
+	errSocketLost = errors.New("the socket was removed or replaced; stopping")
 )
 
 // Server serves one signing key.
@@ -48,14 +50,16 @@ type Server struct {
 	// Log, if set, receives one line per rejected connection or error. Never secrets.
 	Log func(format string, args ...any)
 
-	uidOf  func(*net.UnixConn) (int, error)       // peer uid lookup; tests replace it
-	accept func(*Listener) (*net.UnixConn, error) // tests inject accept errors
+	checkEvery time.Duration                          // how often the socket path is checked; tests shorten it
+	uidOf      func(*net.UnixConn) (int, error)       // peer uid lookup; tests replace it
+	accept     func(*Listener) (*net.UnixConn, error) // tests inject accept errors
 
 	mu      sync.Mutex
 	ln      *Listener
 	conns   map[*net.UnixConn]struct{} // open connections, closed on stop
 	closed  bool                       // stopped by Close (possibly before Serve) or expiry
 	expired bool
+	lost    bool // stopped because the socket file was removed or replaced
 	touch   chan struct{}
 }
 
@@ -66,20 +70,34 @@ func NewServer(signer crypto.Signer) (*Server, error) {
 		return nil, errors.New("keystore agent: signer is not ed25519")
 	}
 	return &Server{signer: signer, pub: pub, IOTimeout: 5 * time.Second, uidOf: peercred.UID,
-		accept: (*Listener).AcceptUnix}, nil
+		accept: (*Listener).AcceptUnix, checkEvery: 10 * time.Second}, nil
 }
 
 // Listener is an agent socket plus the exclusive lock that owns its path.
 type Listener struct {
 	*net.UnixListener
 	lock *os.File
+	path string      // the socket path
+	sock os.FileInfo // the socket file as created, to notice its removal or replacement
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
-// Close closes the socket (removing it) and then releases the path lock.
+// intact reports whether the file at the socket path is still the one this listener created.
+func (l *Listener) intact() bool {
+	st, err := os.Lstat(l.path)
+	return err == nil && os.SameFile(l.sock, st)
+}
+
+// Close closes the socket (removing it) and then releases the path lock. Concurrent calls
+// all wait for the first to finish, so none returns before the lock is released.
 func (l *Listener) Close() error {
-	err := l.UnixListener.Close()
-	l.lock.Close() // closing the descriptor releases the flock
-	return err
+	l.closeOnce.Do(func() {
+		l.closeErr = l.UnixListener.Close()
+		l.lock.Close() // closing the descriptor releases the flock
+	})
+	return l.closeErr
 }
 
 // Listen creates the agent socket at path. The parent directory must be owned by the
@@ -121,7 +139,13 @@ func Listen(path string) (*Listener, error) {
 		lock.Close()
 		return nil, err
 	}
-	return &Listener{UnixListener: ln, lock: lock}, nil
+	st, err := os.Lstat(path)
+	if err != nil {
+		ln.Close()
+		lock.Close()
+		return nil, err
+	}
+	return &Listener{UnixListener: ln, lock: lock, path: path, sock: st}, nil
 }
 
 // umaskMu serialises the umask change in listenLocked: the umask is process-wide, so two
@@ -176,7 +200,8 @@ func checkDir(dir string) error {
 // returns ErrExpired). A negative TTL or Idle is refused with ErrNegativeLifetime and ln
 // is closed. Running out of descriptors on accept is retried; any other accept error
 // stops the agent, closing every open connection. The socket is removed when the
-// listener closes.
+// listener closes. If the socket file is removed or replaced while serving, Serve stops
+// and returns an error; it leaves whatever now sits at the path alone.
 func (s *Server) Serve(ln *Listener) error {
 	if s.TTL < 0 || s.Idle < 0 { // timers arm only for values > 0: a negative one would mean "no limit"
 		ln.Close()
@@ -190,6 +215,10 @@ func (s *Server) Serve(ln *Listener) error {
 	s.ln = ln
 	s.touch = make(chan struct{}, 1)
 	s.mu.Unlock()
+	// Whoever stopped the server may still be inside ln.Close; Serve must not return before
+	// the listener, the socket and the path lock are all released, or a replacement started
+	// the moment Serve returns (a service manager's restart) is refused as already running.
+	defer ln.Close()
 
 	stop := make(chan struct{})
 	defer close(stop)
@@ -201,8 +230,11 @@ func (s *Server) Serve(ln *Listener) error {
 		c, err := s.accept(ln)
 		if err != nil {
 			s.mu.Lock()
-			expired := s.expired
+			expired, lost := s.expired, s.lost
 			s.mu.Unlock()
+			if lost {
+				return errSocketLost
+			}
 			if expired {
 				return ErrExpired
 			}
@@ -244,10 +276,21 @@ func (s *Server) watch(stop <-chan struct{}) {
 		defer idleT.Stop()
 		idle = idleT.C
 	}
+	every := s.checkEvery
+	if every <= 0 {
+		every = 10 * time.Second
+	}
+	tick := time.NewTicker(every)
+	defer tick.Stop()
 	for {
 		select {
 		case <-stop:
 			return
+		case <-tick.C:
+			if s.ln != nil && !s.ln.intact() {
+				s.socketLost()
+				return
+			}
 		case <-s.touch:
 			if idleT != nil {
 				idleT.Reset(s.Idle)
@@ -260,6 +303,26 @@ func (s *Server) watch(stop <-chan struct{}) {
 			return
 		}
 	}
+}
+
+// socketLost stops the agent because its socket file was removed or replaced: nothing can
+// reach it any more, yet it would keep holding the key (its path lock would also block a
+// replacement). Whatever is at the path now is not ours, so it is never unlinked.
+//
+// A Close already under way (SIGTERM, an embedder) removed the socket itself, which is not
+// a loss, and is inside ln.Close: leave it alone. The check and SetUnlinkOnClose share the
+// lock Close takes before it touches the listener, so the two cannot overlap.
+func (s *Server) socketLost() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.ln.SetUnlinkOnClose(false)
+	s.lost = true
+	s.mu.Unlock()
+	s.logf("the socket %s was removed or replaced; stopping", s.ln.path)
+	s.Close()
 }
 
 func (s *Server) expire() {

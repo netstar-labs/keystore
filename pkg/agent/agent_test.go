@@ -659,3 +659,97 @@ func TestAgentLockFileIsUsableUnderARestrictiveUmask(t *testing.T) {
 		t.Errorf("agent lock file mode %04o, want 0600", st.Mode().Perm())
 	}
 }
+
+// If the socket file disappears (a tmp cleaner, a stray rm) the agent used to stay up
+// holding the key: accept on an unlinked listener never errors, nothing could reach it, its
+// path lock blocked a replacement, and with -ttl 0 -idle 0 (the service units) it never ended.
+func TestAgentStopsWhenItsSocketIsRemoved(t *testing.T) {
+	logged := make(chan string, 8)
+	r := start(t, func(s *Server) {
+		s.checkEvery = 20 * time.Millisecond
+		s.Log = func(format string, args ...any) { logged <- fmt.Sprintf(format, args...) }
+	})
+	held, err := net.Dial("unix", r.sock) // a persistent client must not keep the agent alive either
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := os.Remove(r.sock); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-r.done:
+		if !errors.Is(err, errSocketLost) {
+			t.Fatalf("Serve = %v, want errSocketLost", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent kept running after its socket was removed")
+	}
+	select {
+	case line := <-logged:
+		if !strings.Contains(line, "socket") {
+			t.Errorf("log line %q does not say the socket was lost", line)
+		}
+	default:
+		t.Error("nothing was logged")
+	}
+	held.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := held.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("open connection not closed by the stopping agent: %v", err)
+	}
+	// With the socket gone the path lock is released too: a fresh agent can start.
+	ln, err := Listen(r.sock)
+	if err != nil {
+		t.Fatalf("a replacement agent cannot start: %v", err)
+	}
+	ln.Close()
+}
+
+// Replaced (not removed) must be noticed too, and the stopping agent must not unlink
+// whatever now sits at the path: that file is not its socket any more.
+func TestAgentStopsWhenItsSocketIsReplacedAndLeavesTheReplacementAlone(t *testing.T) {
+	r := start(t, func(s *Server) { s.checkEvery = 20 * time.Millisecond })
+	if err := os.Remove(r.sock); err != nil {
+		t.Fatal(err)
+	}
+	other, err := net.Listen("unix", r.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	select {
+	case err := <-r.done:
+		if !errors.Is(err, errSocketLost) {
+			t.Fatalf("Serve = %v, want errSocketLost", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent kept running after its socket was replaced")
+	}
+	if _, err := os.Lstat(r.sock); err != nil {
+		t.Errorf("the stopping agent unlinked the file that replaced its socket: %v", err)
+	}
+}
+
+// A Close that races the socket check must stay a clean stop: Close itself unlinks the
+// socket, which the check must not mistake for a loss (Serve returning errSocketLost, a
+// false "socket lost" exit 1 on SIGTERM), and must not race Close on the unlink flag.
+func TestCloseRacingTheSocketCheckIsACleanStop(t *testing.T) {
+	for i := 0; i < 300; i++ {
+		r := start(t, func(s *Server) { s.checkEvery = 50 * time.Microsecond })
+		time.Sleep(time.Duration(i%7) * 40 * time.Microsecond)
+		r.srv.Close()
+		select {
+		case err := <-r.done:
+			if err != nil {
+				t.Fatalf("run %d: Serve after Close = %v, want nil", i, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("run %d: Serve did not return", i)
+		}
+		ln, err := Listen(r.sock) // the path lock must be free the moment Serve returned
+		if err != nil {
+			t.Fatalf("run %d: replacement cannot start: %v", i, err)
+		}
+		ln.Close()
+	}
+}

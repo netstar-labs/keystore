@@ -63,6 +63,12 @@ Running out of file descriptors (EMFILE/ENFILE) on `accept` is logged and retrie
 other accept error stops the agent the same way (socket removed, connections closed, key
 cleared) and it exits 1.
 
+Every 10 seconds the agent checks that the file at its socket path is still the socket it
+created. If it was removed or replaced (a temp-file cleaner, a stray `rm`) nothing can reach
+the agent any more, so it logs that, stops the same way and exits 1, instead of holding the
+key indefinitely (the shipped service units run with `-ttl 0 -idle 0`). A file that replaced
+its socket is left alone.
+
 ## Client obligations
 
 The reference client (`pkg/agent.Dial`) verifies every returned signature against the
