@@ -15,6 +15,8 @@ step "workload: unlock at start-up, tag a message, drop the key"
 TAG=$(cd "$ROOT" && go run ./examples/secrets -keystore "$RING" -id hmac -passfile "$PASS" -msg "order 42")
 echo "tag: $TAG"
 
+# Demo-only test oracle: this puts the HMAC key on openssl's argv, where other users can read
+# it in ps. Never copy this into real code; real secrets never go on a command line.
 if command -v openssl >/dev/null; then
     WANT=$(printf %s "order 42" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}')
     [ "$TAG" = "$WANT" ] || fail "tag $TAG, openssl says $WANT"

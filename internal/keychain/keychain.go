@@ -8,6 +8,7 @@ package keychain
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/netstar-labs/keystore/internal/ids"
 )
@@ -25,8 +26,8 @@ var (
 // checkService keeps service names to the entry-id alphabet, so a name can never be
 // read by security as an option.
 func checkService(service string) error {
-	if ids.Valid(service) != nil {
-		return errors.New("keystore: keychain service must be 1-64 chars of A-Z a-z 0-9 . _ -, starting alphanumeric")
+	if err := ids.Valid(service); err != nil {
+		return fmt.Errorf("%w; a keychain service name follows the same rule", err)
 	}
 	return nil
 }

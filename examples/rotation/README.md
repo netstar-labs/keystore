@@ -5,8 +5,11 @@ verifier at once. Verifiers pin public keys, so the safe rotation is an overlap,
 
 **Steps:**
 
-1. `keystore add -id prod-2027` — mint the next key beside the current one.
-2. `keystore export-pub -id prod-2027` — publish it; verifiers add it to their trusted set.
+1. `keystore add -id prod-2027 > prod-2027.pub` — mint the next key beside the current one;
+   `add` prints its public key.
+2. Publish that file; verifiers add it to their trusted set. (Take the key `add` printed, not a
+   later `export-pub`: that reads the ring's stored copy, which is checked only when the entry
+   is unlocked.)
 3. `keystore use -id prod-2027` — new signatures use it; old signatures still verify.
 4. `keystore rm -id prod-2026` and drop its public key from verifiers, once nothing signed
    under it is still needed.

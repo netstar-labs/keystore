@@ -4,8 +4,11 @@
 //	keystore-agent -keystore K [-id ID] -sock PATH [-passfile P] [-ttl 8h] [-idle 30m]
 //
 // The passphrase comes from KEYSTORE_PASSPHRASE or -passfile; a daemon never prompts
-// and never reads the keychain. The environment variable is removed from the process
-// environment once read. The socket is removed on SIGINT, SIGTERM, or when -ttl or
+// and never reads the keychain. The environment variable is cleared from the agent's own
+// environment once read (children and os.Environ no longer see it), but the block the
+// process started with stays readable by the same user (ps eww, /proc/PID/environ), so
+// prefer -passfile. There is no default ring: -keystore (or $KEYSTORE_FILE) and -sock are
+// required. The socket is removed on SIGINT, SIGTERM, or when -ttl or
 // -idle expires; the process then exits 0.
 package main
 
@@ -89,12 +92,11 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	signer, err := k.Signer(*id, pw)
+	priv, err := k.ExportPrivate(*id, pw)
 	clear(pw)
 	if err != nil {
 		return err
 	}
-	priv := signer.(ed25519.PrivateKey)
 	defer clear(priv) // drop the key on every exit path
 
 	srv, err := agent.NewServer(priv)
