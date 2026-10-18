@@ -93,6 +93,11 @@ func (k *Keystore) Import(id string, priv ed25519.PrivateKey, passphrase []byte)
 	if len(priv) != ed25519.PrivateKeySize {
 		return errors.New("keystore: not an ed25519 private key")
 	}
+	// Only the seed is encrypted; a public half that is not its seed's would be stored
+	// and published with no private key behind it.
+	if !ed25519.NewKeyFromSeed(priv.Seed()).Equal(priv) {
+		return errors.New("keystore: ed25519 private key's public half does not match its seed")
+	}
 	return k.addSigning(id, passphrase, func() (ed25519.PrivateKey, error) { return priv, nil })
 }
 

@@ -355,3 +355,48 @@ func TestSymlinkedRingPath(t *testing.T) {
 		t.Fatal("lock taken on the link's name, not the real ring's")
 	}
 }
+
+// A 64-byte key whose public half is not the seed's would store a public key with no
+// private key behind it; Import refuses it and leaves the ring untouched.
+func TestImportInconsistentKey(t *testing.T) {
+	_, good, _ := ed25519.GenerateKey(nil)
+	other, _, _ := ed25519.GenerateKey(nil)
+	bad := append(ed25519.PrivateKey(nil), good...)
+	copy(bad[32:], other) // seed of good, public half of another key
+
+	for _, seeded := range []bool{false, true} {
+		k, path := newRing(t)
+		if seeded {
+			if _, err := k.Add("a", pass); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before, _ := os.ReadFile(path)
+		if err := k.Import("bad", bad, pass); err == nil {
+			t.Fatalf("seeded=%v: Import accepted a key whose public half is not its seed's", seeded)
+		}
+		after, _ := os.ReadFile(path)
+		if !bytes.Equal(before, after) {
+			t.Fatalf("seeded=%v: refused Import changed the ring file", seeded)
+		}
+	}
+}
+
+func TestImportConsistentKeys(t *testing.T) {
+	_, generated, _ := ed25519.GenerateKey(nil)
+	fromSeed := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+	k, _ := newRing(t)
+	for id, priv := range map[string]ed25519.PrivateKey{"gen": generated, "seed": fromSeed} {
+		if err := k.Import(id, priv, pass); err != nil {
+			t.Fatalf("Import(%s): %v", id, err)
+		}
+		s, err := k.Signer(id, pass)
+		if err != nil {
+			t.Fatalf("Signer(%s): %v", id, err)
+		}
+		sig, err := s.Sign(nil, []byte("m"), &ed25519.Options{})
+		if err != nil || !ed25519.Verify(priv.Public().(ed25519.PublicKey), []byte("m"), sig) {
+			t.Fatalf("%s: imported key does not sign verifiably: %v", id, err)
+		}
+	}
+}
