@@ -77,12 +77,14 @@ func TestStopWatchingIgnoresLaterSignals(t *testing.T) {
 	exited := make(chan int, 1)
 	stop := restoreOnSignal(func() {}, func(code int) { exited <- code })
 	stop()
-	// with the watcher stopped, SIGHUP must not call exit (the process keeps default
-	// handling off: keep a Notify so the test process itself does not die)
+	// With the watcher stopped, a SIGHUP must not call exit. Keep our own Notify so the
+	// signal does not take the test process down with its default action.
 	keep := make(chan os.Signal, 1)
 	signal.Notify(keep, syscall.SIGHUP)
 	defer signal.Stop(keep)
-	syscall.Kill(os.Getpid(), syscall.SIGHUP)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-keep:
 	case <-time.After(time.Second):
