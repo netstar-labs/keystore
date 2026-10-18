@@ -124,7 +124,7 @@ is unlocked.
 ```sh
 keystore sign   -keystore prod.ks -in msg > msg.sig            # unlocks the current key
 keystore sign   -agent /run/user/1000/keystore/agent.sock -in msg > msg.sig   # no passphrase
-keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid
+keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid, 3 = does not verify
 ```
 
 Signatures are pure Ed25519, written as base64 (or 64 raw bytes with `-raw`). Messages are
@@ -146,7 +146,7 @@ environment once read, but the copy in the environment block it was started with
 readable by the same user (`ps eww`, `/proc/PID/environ`). The agent has no default ring:
 `-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required. The socket's directory must
 already exist, be yours and mode 0700, and the whole socket path must fit the operating system's
-limit (about 104 bytes on macOS, 108 on Linux) or the agent exits with `bind: invalid argument`.
+limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
 It stops — removing the socket — on SIGINT/SIGTERM, after `-ttl` (a hard stop), or after
 `-idle` without a successful request (any successful request counts, including a public-key
 fetch); `0` disables either and a negative value is refused. A second agent will not take
@@ -194,5 +194,6 @@ covered.
 
 ## Exit status
 
-`0` success (and `-h`/`help`); `2` usage error; `1` every other failure, including a signature
-that does not verify; `130` interrupted at a prompt.
+`0` success (and `-h`/`help`); `1` failure (a missing file, a wrong passphrase, a refused
+operation); `2` usage error; `3` a signature that does not verify (`verify`), so a script can tell a
+bad signature from a check that could not be made; `130` interrupted at a prompt.
