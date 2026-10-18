@@ -204,3 +204,36 @@ func TestSignReportsTheKeyAndHonoursExpectFP(t *testing.T) {
 		t.Errorf("sign -id prod: %v, %q", err, errOut)
 	}
 }
+
+// `sign -expect-fp "$FP"` with FP unset or empty must not quietly become "no pin": a script
+// that relies on the pin would fail open. An explicitly empty value is a usage error,
+// refused before the passphrase is read or the agent dialled. A pin that differs only at
+// the tail is refused as well (a prefix comparison would pass it).
+func TestExpectFPEmptyIsRefusedAndMatchingIsExact(t *testing.T) {
+	r, pubFile, msg := signFixture(t)
+	pemA, _ := os.ReadFile(pubFile)
+	pubA, _ := keystore.ParsePublicKeyPEM(pemA)
+	fp := keystore.Fingerprint(pubA)
+	for _, args := range [][]string{
+		{"-expect-fp", ""},
+		{"-expect-fp="},
+	} {
+		out, _, err := cli(t, append([]string{"sign", "-keystore", r, "-in", msg}, args...)...)
+		if !isUsage(err) || out != "" {
+			t.Errorf("sign %v: out %q err %v, want a usage error and no signature", args, out, err)
+		}
+	}
+	for name, pin := range map[string]string{
+		"last character changed": fp[:len(fp)-1] + string(rune(fp[len(fp)-1]^1)),
+		"truncated":              fp[:len(fp)-3],
+		"extra suffix":           fp + "x",
+		"lower case":             strings.ToLower(fp),
+	} {
+		if out, _, err := cli(t, "sign", "-keystore", r, "-in", msg, "-expect-fp", pin); err == nil || out != "" {
+			t.Errorf("%s: pin %q accepted (out %q, err %v)", name, pin, out, err)
+		}
+	}
+	if _, _, err := cli(t, "sign", "-keystore", r, "-in", msg, "-expect-fp", fp); err != nil {
+		t.Errorf("exact pin refused: %v", err)
+	}
+}

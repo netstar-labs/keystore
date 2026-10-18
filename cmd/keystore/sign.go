@@ -40,6 +40,11 @@ func setupSign(fs *flag.FlagSet, s *stdio) func() error {
 		if *sock != "" && *id != "" {
 			return usageError("-id selects a ring key; the agent serves one key (drop -id or -agent)")
 		}
+		pinned := false // an explicit -expect-fp "" must not quietly mean "no pin" (an unset $FP)
+		fs.Visit(func(f *flag.Flag) { pinned = pinned || f.Name == "expect-fp" })
+		if pinned && *expect == "" {
+			return usageError("-expect-fp is empty; pass the key's SHA256:... fingerprint or drop the flag")
+		}
 		msg, err := readMessage(s, *in)
 		if err != nil {
 			return err
@@ -53,7 +58,7 @@ func setupSign(fs *flag.FlagSet, s *stdio) func() error {
 		pub, _ := signer.Public().(ed25519.PublicKey)
 		fp := keystore.Fingerprint(pub)
 		priv, isPriv := signer.(ed25519.PrivateKey)
-		if *expect != "" && *expect != fp {
+		if pinned && *expect != fp {
 			if isPriv {
 				clear(priv)
 			}
