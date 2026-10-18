@@ -106,6 +106,7 @@ func Listen(path string) (*Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	lock.Chmod(0o600) // the creation mode is subject to the umask: 0277 would leave 0400 and wedge the next start
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		lock.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {

@@ -414,6 +414,7 @@ func Lock(path string) (release func(), err error) {
 	if err != nil {
 		return nil, err
 	}
+	fh.Chmod(0o600) // the creation mode is subject to the umask: 0277 would leave 0400 and wedge every later open
 	deadline := time.Now().Add(LockTimeout)
 	for {
 		err := syscall.Flock(int(fh.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)

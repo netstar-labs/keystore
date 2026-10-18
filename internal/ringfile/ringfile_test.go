@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -508,4 +509,32 @@ func TestParseEntriesShapes(t *testing.T) {
 	if _, err := Parse([]byte(`{"magic":"keystore/v2","entries":[{"new":1}]}`)); !errors.Is(err, ErrFutureVersion) {
 		t.Fatalf("future magic with unknown entry fields: %v", err)
 	}
+}
+
+// A restrictive umask made the lock file 0400 at creation, so every later open for writing
+// failed ("permission denied") until the file was removed: the ring's other lock (and any
+// later write) was wedged by the creator's own umask. The lock file is 0600 whatever the
+// umask (the temp file already chmods explicitly).
+func TestLockFileIsUsableUnderARestrictiveUmask(t *testing.T) {
+	dir := t.TempDir() // before the umask change: a 0277 umask cannot even create it
+	old := syscall.Umask(0o277)
+	defer syscall.Umask(old)
+	path := filepath.Join(dir, "r.ks")
+	release, err := Lock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	st, err := os.Stat(path + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Errorf("lock file mode %04o, want 0600", st.Mode().Perm())
+	}
+	release, err = Lock(path) // the second open used to fail with permission denied
+	if err != nil {
+		t.Fatalf("second Lock under umask 0277: %v", err)
+	}
+	release()
 }
