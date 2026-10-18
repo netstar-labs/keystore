@@ -26,6 +26,10 @@ import (
 	"github.com/netstar-labs/keystore/internal/seal"
 )
 
+// errEmptyPass is the one refusal of an empty passphrase, shared by every path that
+// would encrypt under one. Unexported: callers cannot usefully act on it beyond failing.
+var errEmptyPass = errors.New("keystore: empty passphrase")
+
 // Keystore is an open ring file.
 type Keystore struct {
 	path string
@@ -115,8 +119,12 @@ func (k *Keystore) addSigning(id string, passphrase []byte, key func() (ed25519.
 
 // add is the one path by which an encrypted entry enters a ring: validate the id, then
 // under the lock refuse a duplicate, prove the passphrase against the ring, and only
-// then produce the material, encrypt it and append it.
+// then produce the material, encrypt it and append it. An empty passphrase is refused
+// first: it would create a ring that opens with no secret at all.
 func (k *Keystore) add(id, kind string, passphrase []byte, material func() (pub, plaintext []byte, err error)) error {
+	if len(passphrase) == 0 {
+		return errEmptyPass
+	}
 	if err := ids.Valid(id); err != nil {
 		return err
 	}
@@ -149,7 +157,7 @@ func (k *Keystore) add(id, kind string, passphrase []byte, material func() (pub,
 // any fails, nothing is written and the error is ErrBadPass.
 func (k *Keystore) ChangePassphrase(oldPass, newPass []byte) error {
 	if len(newPass) == 0 {
-		return errors.New("keystore: empty new passphrase")
+		return errEmptyPass
 	}
 	return k.update(func(f *ringfile.File) error {
 		if len(f.Entries) == 0 {

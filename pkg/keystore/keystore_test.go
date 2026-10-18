@@ -355,3 +355,63 @@ func TestSymlinkedRingPath(t *testing.T) {
 		t.Fatal("lock taken on the link's name, not the real ring's")
 	}
 }
+
+// An empty passphrase would make a ring any copy-holder can open; every path that
+// establishes one refuses it, as ChangePassphrase does, and leaves the file untouched.
+func TestEmptyPassphraseRefused(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	adds := map[string]func(k *Keystore, p []byte) error{
+		"Add":          func(k *Keystore, p []byte) error { _, err := k.Add("n", p); return err },
+		"AddSecret":    func(k *Keystore, p []byte) error { _, err := k.AddSecret("n", p); return err },
+		"Import":       func(k *Keystore, p []byte) error { return k.Import("n", priv, p) },
+		"ImportSecret": func(k *Keystore, p []byte) error { return k.ImportSecret("n", []byte("s"), p) },
+	}
+	for name, add := range adds {
+		for _, empty := range [][]byte{nil, {}} {
+			for _, seeded := range []bool{false, true} {
+				k, path := newRing(t)
+				if seeded {
+					if _, err := k.Add("a", pass); err != nil {
+						t.Fatal(err)
+					}
+				}
+				before, _ := os.ReadFile(path)
+				err := add(k, empty)
+				if err == nil || errors.Is(err, ErrPassphraseMismatch) {
+					t.Fatalf("%s(%#v, seeded=%v) = %v, want the empty-passphrase error", name, empty, seeded, err)
+				}
+				after, _ := os.ReadFile(path)
+				if !bytes.Equal(before, after) {
+					t.Fatalf("%s(%#v, seeded=%v) changed the ring file", name, empty, seeded)
+				}
+			}
+		}
+	}
+	// It is the same refusal ChangePassphrase gives.
+	k, _ := newRing(t)
+	k.Add("a", pass)
+	_, e1 := k.Add("b", nil)
+	e2 := k.ChangePassphrase(pass, nil)
+	if e1 == nil || e2 == nil || !errors.Is(e1, errEmptyPass) || !errors.Is(e2, errEmptyPass) {
+		t.Fatalf("Add error %v, ChangePassphrase error %v: both want errEmptyPass", e1, e2)
+	}
+}
+
+// Unlocking with an empty passphrase already fails on a real ring, so the read paths
+// need no check of their own.
+func TestEmptyPassphraseDoesNotUnlock(t *testing.T) {
+	k, _ := newRing(t)
+	k.Add("a", pass)
+	k.AddSecret("s", pass)
+	for _, empty := range [][]byte{nil, {}} {
+		if _, err := k.Signer("a", empty); !errors.Is(err, ErrBadPass) {
+			t.Fatalf("Signer(empty) = %v, want ErrBadPass", err)
+		}
+		if _, err := k.Secret("s", empty); !errors.Is(err, ErrBadPass) {
+			t.Fatalf("Secret(empty) = %v, want ErrBadPass", err)
+		}
+	}
+	if _, err := k.Signer("a", pass); err != nil {
+		t.Fatalf("real passphrase no longer unlocks: %v", err)
+	}
+}
