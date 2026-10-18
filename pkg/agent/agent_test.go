@@ -729,3 +729,27 @@ func TestAgentStopsWhenItsSocketIsReplacedAndLeavesTheReplacementAlone(t *testin
 		t.Errorf("the stopping agent unlinked the file that replaced its socket: %v", err)
 	}
 }
+
+// A Close that races the socket check must stay a clean stop: Close itself unlinks the
+// socket, which the check must not mistake for a loss (Serve returning errSocketLost, a
+// false "socket lost" exit 1 on SIGTERM), and must not race Close on the unlink flag.
+func TestCloseRacingTheSocketCheckIsACleanStop(t *testing.T) {
+	for i := 0; i < 300; i++ {
+		r := start(t, func(s *Server) { s.checkEvery = 50 * time.Microsecond })
+		time.Sleep(time.Duration(i%7) * 40 * time.Microsecond)
+		r.srv.Close()
+		select {
+		case err := <-r.done:
+			if err != nil {
+				t.Fatalf("run %d: Serve after Close = %v, want nil", i, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("run %d: Serve did not return", i)
+		}
+		ln, err := Listen(r.sock) // the path lock must be free the moment Serve returned
+		if err != nil {
+			t.Fatalf("run %d: replacement cannot start: %v", i, err)
+		}
+		ln.Close()
+	}
+}

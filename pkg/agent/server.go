@@ -33,7 +33,7 @@ var (
 	// limit was reached.
 	ErrExpired = errors.New("keystore agent: lifetime or idle limit reached")
 	// errSocketLost is what Serve returns when the socket file was removed or replaced.
-	errSocketLost = errors.New("keystore agent: the socket was removed or replaced; stopping")
+	errSocketLost = errors.New("the socket was removed or replaced; stopping")
 )
 
 // Server serves one signing key.
@@ -79,6 +79,9 @@ type Listener struct {
 	lock *os.File
 	path string      // the socket path
 	sock os.FileInfo // the socket file as created, to notice its removal or replacement
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // intact reports whether the file at the socket path is still the one this listener created.
@@ -87,11 +90,14 @@ func (l *Listener) intact() bool {
 	return err == nil && os.SameFile(l.sock, st)
 }
 
-// Close closes the socket (removing it) and then releases the path lock.
+// Close closes the socket (removing it) and then releases the path lock. Concurrent calls
+// all wait for the first to finish, so none returns before the lock is released.
 func (l *Listener) Close() error {
-	err := l.UnixListener.Close()
-	l.lock.Close() // closing the descriptor releases the flock
-	return err
+	l.closeOnce.Do(func() {
+		l.closeErr = l.UnixListener.Close()
+		l.lock.Close() // closing the descriptor releases the flock
+	})
+	return l.closeErr
 }
 
 // Listen creates the agent socket at path. The parent directory must be owned by the
@@ -301,12 +307,20 @@ func (s *Server) watch(stop <-chan struct{}) {
 // socketLost stops the agent because its socket file was removed or replaced: nothing can
 // reach it any more, yet it would keep holding the key (its path lock would also block a
 // replacement). Whatever is at the path now is not ours, so it is never unlinked.
+//
+// A Close already under way (SIGTERM, an embedder) removed the socket itself, which is not
+// a loss, and is inside ln.Close: leave it alone. The check and SetUnlinkOnClose share the
+// lock Close takes before it touches the listener, so the two cannot overlap.
 func (s *Server) socketLost() {
-	s.logf("keystore agent: the socket %s was removed or replaced; stopping", s.ln.path)
-	s.ln.SetUnlinkOnClose(false)
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.ln.SetUnlinkOnClose(false)
 	s.lost = true
 	s.mu.Unlock()
+	s.logf("the socket %s was removed or replaced; stopping", s.ln.path)
 	s.Close()
 }
 

@@ -9,7 +9,8 @@
 // process started with stays readable by the same user (ps eww, /proc/PID/environ), so
 // prefer -passfile. There is no default ring: -keystore (or $KEYSTORE_FILE) and -sock are
 // required. The socket is removed on SIGINT, SIGTERM, or when -ttl or
-// -idle expires; the process then exits 0.
+// -idle expires; the process then exits 0. If the socket file is removed or replaced it
+// stops within about 10 s and exits 1 (the replacement is left alone).
 package main
 
 import (
