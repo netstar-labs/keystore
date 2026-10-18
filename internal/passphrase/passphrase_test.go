@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -197,5 +199,24 @@ func TestReplacementSources(t *testing.T) {
 	}
 	if pw, err := Replacement(passfile(t, "replacement from a file\n", 0o600)); err == nil {
 		t.Fatalf("env should win over the new passfile; got %q", pw)
+	}
+}
+
+// Regression (review): a FIFO at the passfile path blocked the open forever.
+func TestPassfileFIFODoesNotBlock(t *testing.T) {
+	t.Setenv(EnvVar, "")
+	p := filepath.Join(t.TempDir(), "fifo")
+	if err := syscall.Mkfifo(p, 0o600); err != nil {
+		t.Skip("mkfifo:", err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Unlock(p); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("FIFO accepted as a passfile")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("opening a FIFO passfile blocked")
 	}
 }

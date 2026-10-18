@@ -111,7 +111,8 @@ func readLimited(path string, limit int64) ([]byte, error) {
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err == nil && int64(len(b)) > limit {
-		err = errors.New("keystore: secret input too large")
+		clear(b)
+		return nil, fmt.Errorf("keystore: %s is too large", path)
 	}
 	return b, err
 }

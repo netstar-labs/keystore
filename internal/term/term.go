@@ -75,7 +75,7 @@ func ReadPassword(prompt string) ([]byte, error) {
 // consumed, and refuses lines longer than MaxLen.
 func readLine(f *os.File) ([]byte, error) {
 	var buf [1]byte
-	var line []byte
+	line := make([]byte, 0, MaxLen) // fixed capacity: append never reallocates and copies
 	for {
 		n, err := f.Read(buf[:])
 		if n == 1 {

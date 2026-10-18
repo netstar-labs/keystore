@@ -136,7 +136,7 @@ func resolve(src sources, passfile string) (pw []byte, prompted bool, err error)
 // regular file owned by the caller with no group or other permissions. One trailing
 // newline (LF or CRLF) is removed.
 func readPassfile(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) // a FIFO must not block the open
 	if err != nil {
 		return nil, fmt.Errorf("keystore: passfile: %w", err)
 	}

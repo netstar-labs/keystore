@@ -290,3 +290,12 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 		t.Fatalf("%s mode %v, want %v", filepath.Base(path), st.Mode().Perm(), want)
 	}
 }
+
+func TestImportKeySizeCap(t *testing.T) {
+	r := ring(t)
+	big := filepath.Join(t.TempDir(), "big.pem")
+	os.WriteFile(big, bytes.Repeat([]byte("A"), 128<<10), 0o600)
+	if _, _, err := cli(t, "import", "-keystore", r, "-id", "x", "-key", big); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversize key file: %v", err)
+	}
+}

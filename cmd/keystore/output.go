@@ -77,9 +77,14 @@ func writeNew(path string, b []byte, mode os.FileMode) error {
 	}
 	if err := f.Sync(); err != nil {
 		f.Close()
+		os.Remove(path)
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 func replace(path string, b []byte, mode os.FileMode) error {

@@ -174,7 +174,7 @@ func setupImport(fs *flag.FlagSet, s *stdio) func() error {
 		if err := need("key", *keyFile); err != nil {
 			return err
 		}
-		b, err := os.ReadFile(*keyFile)
+		b, err := readLimited(*keyFile, 64<<10) // a PEM private key is well under 1 KiB
 		if err != nil {
 			return err
 		}
