@@ -89,18 +89,25 @@ func isUsage(err error) bool {
 	return errors.As(err, &u)
 }
 
-// oneLine keeps failure output to a single line, and free of control characters: the
-// message can echo a file name or OS error text the operator's script took from elsewhere,
-// and an escape sequence or carriage return there must not act on the terminal.
+// oneLine keeps failure output to a single line, free of terminal-active characters.
 func oneLine(err error) string {
-	msg := strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, err.Error())
+	msg := clean(err.Error())
 	if !strings.HasPrefix(msg, "keystore") {
 		msg = "keystore: " + msg
 	}
 	return msg
+}
+
+// clean replaces every non-printable rune (control characters including ESC, CR, DEL and
+// C1, line separators, bidi overrides, and invalid UTF-8) with a space. Anything the CLI
+// echoes that it did not produce itself, such as a file name an operator's script took
+// from an archive or an upload, goes through it: an escape sequence or a carriage return
+// there must not act on the terminal or forge a line of our own output.
+func clean(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return ' '
+	}, s)
 }

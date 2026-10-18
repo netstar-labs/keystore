@@ -196,7 +196,7 @@ func setupImport(fs *flag.FlagSet, s *stdio) func() error {
 		if err := k.Import(*id, priv, pw); err != nil {
 			return err
 		}
-		fmt.Fprintf(s.err, "imported %s (current: %s); remove the plaintext file %s\n", *id, k.CurrentID(), *keyFile)
+		fmt.Fprintf(s.err, "imported %s (current: %s); remove the plaintext file %s\n", *id, k.CurrentID(), clean(*keyFile))
 		return nil
 	}
 }

@@ -60,7 +60,7 @@ func setupSign(fs *flag.FlagSet, s *stdio) func() error {
 		if err := writeFile(*out, b, 0o644, *force); err != nil {
 			return err
 		}
-		fmt.Fprintf(s.err, "wrote %s\n", *out)
+		fmt.Fprintf(s.err, "wrote %s\n", clean(*out))
 		return nil
 	}
 }

@@ -5,17 +5,17 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
-	"fmt"
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/internal/passphrase"
 	"github.com/netstar-labs/keystore/pkg/keystore"
-	"unicode"
 )
 
 var update = flag.Bool("update", false, "rewrite docs/reference.md")
@@ -302,18 +302,57 @@ func TestImportKeySizeCap(t *testing.T) {
 	}
 }
 
-// A file name the operator's script passes through can carry terminal control sequences;
-// the failure line that echoes it must not let them act (recolour, retitle, or CR back
-// over the line start to forge a "keystore: verified" report).
-func TestOneLineNeutralisesControlCharacters(t *testing.T) {
-	name := "x\x1b[31mRED\x1b]0;pwned\x07\rkeystore: verified: SHA256:fake\x7f\u009b"
-	got := oneLine(fmt.Errorf("open %s: no such file or directory", name))
-	for _, r := range got {
-		if unicode.IsControl(r) {
-			t.Fatalf("control character %U survives in %q", r, got)
+// A file name the operator's script passes through can carry terminal control sequences
+// (recolour, retitle, a carriage return back over the line start to forge a "keystore:
+// verified" line, a bidi override that reorders the rest of the line). Nothing the CLI
+// prints may let them act: not in a failure message, and not in the success-path lines
+// that echo an output or input path either.
+const hostile = "a\x1b[31m\x1b]0;pwned\x07\rkeystore: verified: SHA256:fake\x7f\u009b\u202e\u2028b"
+
+func assertInert(t *testing.T, what, text string) {
+	t.Helper()
+	text = strings.TrimSuffix(text, "\n")
+	for _, r := range text {
+		if !unicode.IsPrint(r) {
+			t.Errorf("%s: terminal-active rune %U survives in %q", what, r, text)
+			return
 		}
 	}
+}
+
+func TestOneLineNeutralisesControlCharacters(t *testing.T) {
+	got := oneLine(fmt.Errorf("open %s: no such file or directory", hostile+"\xff"))
+	assertInert(t, "oneLine", got)
 	if !strings.Contains(got, "no such file or directory") || !strings.HasPrefix(got, "keystore: ") {
 		t.Errorf("message mangled: %q", got)
 	}
+}
+
+func TestSuccessLinesEchoNoTerminalControls(t *testing.T) {
+	r, _, msg := signFixture(t)
+	dir := t.TempDir()
+
+	_, errOut, err := cli(t, "sign", "-keystore", r, "-in", msg, "-o", filepath.Join(dir, hostile+".sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "sign -o", errOut)
+
+	_, errOut, err = cli(t, "export-priv", "-keystore", r, "-o", filepath.Join(dir, hostile+".pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "export-priv -o", errOut)
+
+	_, priv, _ := ed25519.GenerateKey(nil)
+	pemB, _ := keystore.MarshalPrivateKeyPEM(priv)
+	kf := filepath.Join(dir, hostile+".in")
+	if err := os.WriteFile(kf, pemB, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, err = cli(t, "import", "-keystore", r, "-id", "b", "-key", kf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInert(t, "import -key", errOut)
 }
