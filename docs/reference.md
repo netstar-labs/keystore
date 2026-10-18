@@ -151,6 +151,7 @@ sign up to 1 MiB from -in FILE or stdin with a ring key or an agent; prints a ba
 | Flag | Meaning | Default |
 |---|---|---|
 | `-agent` | sign through the agent at this socket instead of unlocking the ring | — |
+| `-expect-fp` | refuse to sign unless the signing key's fingerprint is this (SHA256:..., as list shows) | — |
 | `-force` | replace an existing -o file | — |
 | `-id` | entry id (default: the current signing key) | — |
 | `-in` | message file; - for stdin | - |

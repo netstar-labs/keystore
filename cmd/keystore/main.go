@@ -28,8 +28,17 @@ func main() {
 	os.Exit(report(os.Stderr, err))
 }
 
-// report prints err to w and returns the process exit status: 0 for success and help, 2
-// for a usage error, 1 for anything else. Messages are cleaned: they can echo input the
+// Exit statuses. A signature that does not verify has its own code so automation can tell
+// "this is bad" from "could not check" (a missing file, an unreadable key).
+const (
+	exitFailure      = 1
+	exitUsage        = 2
+	exitBadSignature = 3
+)
+
+// report prints err to w and returns the process exit status: 0 for success and help,
+// exitUsage for a usage error, exitBadSignature for a signature that does not verify,
+// exitFailure for anything else. Messages are cleaned: they can echo input the
 // operator's script took from elsewhere.
 func report(w io.Writer, err error) int {
 	switch {
@@ -37,10 +46,13 @@ func report(w io.Writer, err error) int {
 		return 0
 	case isUsage(err):
 		fmt.Fprintln(w, "keystore:", term.Clean(err.Error()))
-		return 2
+		return exitUsage
+	case errors.Is(err, errBadSig):
+		fmt.Fprintln(w, oneLine(err))
+		return exitBadSignature
 	default:
 		fmt.Fprintln(w, oneLine(err))
-		return 1
+		return exitFailure
 	}
 }
 

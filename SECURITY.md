@@ -40,7 +40,9 @@ five working days.
   another ring that shares the passphrase unlocks in place of the entry with the same id
   and kind. None of this yields a key or a signature under a key you did not choose, but
   it can make a command sign with the wrong one of your keys, resurrect a retired key, or
-  deny service. Always pass `-id` in scripts, pin public keys in verifiers, and after a
+  deny service. Always pass `-id` in scripts (or pin the key with `sign -expect-fp`; `sign`
+  names the key it used on stderr; the pin covers `sign` only, so `export-pub` and an agent
+  started without `-id` still take the ring's current key unchecked), pin public keys in verifiers, and after a
   suspected ring-write compromise create a new key and passphrase rather than running `rm` or
   `passwd` on the old ring.
 - **`pub` is readable without the passphrase but authenticated only at unlock.** A ring

@@ -198,8 +198,8 @@ func TestReplacementSources(t *testing.T) {
 	if _, err := Replacement(""); !errors.Is(err, ErrTooShort) {
 		t.Fatalf("short replacement: %v", err)
 	}
-	if pw, err := Replacement(passfile(t, "replacement from a file\n", 0o600)); err == nil {
-		t.Fatalf("env should win over the new passfile; got %q", pw)
+	if pw, err := Replacement(passfile(t, "replacement from a file\n", 0o600)); err == nil || !strings.Contains(err.Error(), "-new-passfile") {
+		t.Fatalf("env set with -new-passfile should be refused, naming the flag; got %q, %v", pw, err)
 	}
 }
 
@@ -220,6 +220,107 @@ func TestPassfileFIFODoesNotBlock(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("opening a FIFO passfile blocked")
 	}
+}
+
+func captureNotices(t *testing.T) *[]string {
+	t.Helper()
+	var got []string
+	old := notice
+	t.Cleanup(func() { notice = old })
+	notice = func(s string) { got = append(got, s) }
+	return &got
+}
+
+// An explicit -passfile loses to a higher-priority source (the documented order). That let
+// a stale KEYSTORE_PASSPHRASE silently decide the passphrase a ring was ESTABLISHED under
+// (decision 16: an explicit source must not degrade invisibly). The order is unchanged;
+// when unlocking the shadowing is announced, and when establishing it is refused.
+func TestShadowedPassfileIsAnnouncedWhenUnlocking(t *testing.T) {
+	pf := passfile(t, "the passfile passphrase", 0o600)
+	t.Run("env shadows passfile", func(t *testing.T) {
+		notes := captureNotices(t)
+		t.Setenv(EnvVar, "the environment passphrase")
+		pw, err := Unlock(pf)
+		if err != nil || string(pw) != "the environment passphrase" {
+			t.Fatalf("precedence changed: %q, %v", pw, err)
+		}
+		if want := "keystore: note: " + EnvVar + " is set, so -passfile is ignored"; len(*notes) != 1 || (*notes)[0] != want {
+			t.Errorf("notices = %q, want exactly [%q]", *notes, want)
+		}
+	})
+	t.Run("keychain shadows passfile", func(t *testing.T) {
+		notes := captureNotices(t)
+		stubKeychain(t, "the keychain passphrase", nil)
+		t.Setenv(KeychainVar, "svc")
+		if _, err := Unlock(pf); err != nil {
+			t.Fatal(err)
+		}
+		if want := "keystore: note: " + KeychainVar + " is set, so -passfile is ignored"; len(*notes) != 1 || (*notes)[0] != want {
+			t.Errorf("notices = %q, want exactly [%q]", *notes, want)
+		}
+	})
+	t.Run("nothing shadowed, nothing said", func(t *testing.T) {
+		notes := captureNotices(t)
+		if _, err := Unlock(pf); err != nil { // passfile alone
+			t.Fatal(err)
+		}
+		t.Setenv(EnvVar, "the environment passphrase")
+		if _, err := Unlock(""); err != nil { // env alone
+			t.Fatal(err)
+		}
+		t.Setenv(EnvVar, "") // an EMPTY variable is not a source: the passfile is used, silently
+		pw, err := Unlock(pf)
+		if err != nil || string(pw) != "the passfile passphrase" {
+			t.Fatalf("empty env should fall through to the passfile: %q, %v", pw, err)
+		}
+		if len(*notes) != 0 {
+			t.Errorf("unexpected notices: %q", *notes)
+		}
+	})
+}
+
+func TestShadowedPassfileIsRefusedWhenEstablishing(t *testing.T) {
+	pf := passfile(t, "the passfile passphrase", 0o600)
+	cases := []struct {
+		name string
+		set  func(t *testing.T)
+		call func() ([]byte, error)
+		want []string
+	}{
+		{"new: env", func(t *testing.T) { t.Setenv(EnvVar, "the environment passphrase") },
+			func() ([]byte, error) { return New(pf) }, []string{EnvVar + " is set and so is -passfile;"}},
+		{"new: keychain", func(t *testing.T) { stubKeychain(t, "the keychain passphrase", nil); t.Setenv(KeychainVar, "svc") },
+			func() ([]byte, error) { return New(pf) }, []string{KeychainVar + " is set and so is -passfile;"}},
+		{"replacement: new env names -new-passfile", func(t *testing.T) { t.Setenv(NewEnvVar, "the new environment passphrase") },
+			func() ([]byte, error) { return Replacement(pf) }, []string{NewEnvVar + " is set and so is -new-passfile;"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			notes := captureNotices(t)
+			c.set(t)
+			pw, err := c.call()
+			if err == nil || pw != nil {
+				t.Fatalf("established under a shadowed passfile: %q, %v", pw, err)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error %q does not name %q", err, w)
+				}
+			}
+			if len(*notes) != 0 {
+				t.Errorf("refusal also printed a notice: %q", *notes)
+			}
+		})
+	}
+	t.Run("passfile alone or env alone still establish", func(t *testing.T) {
+		if pw, err := New(pf); err != nil || string(pw) != "the passfile passphrase" {
+			t.Fatalf("New(passfile) = %q, %v", pw, err)
+		}
+		t.Setenv(EnvVar, "the environment passphrase")
+		if pw, err := New(""); err != nil || string(pw) != "the environment passphrase" {
+			t.Fatalf("New(env) = %q, %v", pw, err)
+		}
+	})
 }
 
 // The length check counts runes; converting the passphrase to a string and a []rune for
