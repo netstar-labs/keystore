@@ -6,8 +6,10 @@
 
 - Created mode 0600 (under `umask 0177`, then `chmod`) in a directory owned by the agent's
   user with no group or other permissions; the agent refuses any other directory.
-- If a live agent already answers on the path, a new agent refuses to start. A stale socket
-  (nothing listening) is removed; any non-socket file at the path is refused.
+- The agent owns the path through an exclusive `flock` on `<socket>.lock`, held for its
+  whole life. A second agent — even one starting at the same instant — refuses to start and
+  never touches the socket. Without the lock held, a socket something still answers on is
+  also refused; a stale one is removed; any non-socket file at the path is refused.
 - The socket is removed when the agent stops: SIGINT, SIGTERM, `-ttl` or `-idle` expiry.
 
 ## Peer check
@@ -47,8 +49,10 @@ An unknown operation gets an error reply and the connection is closed.
 ## Lifetime
 
 `-ttl D` stops the agent `D` after start; `-idle D` stops it after `D` with no successful
-request. `0` disables either. On expiry the agent closes the listener, removes the socket,
-waits for in-flight requests (bounded by the deadline), and exits 0.
+request. `0` disables either. On expiry, SIGINT or SIGTERM the agent closes the listener
+(removing the socket) **and every open connection**, so a client holding a connection open
+cannot extend its life; it then waits for handlers to return (bounded by the deadline),
+clears the key, and exits 0.
 
 ## Client obligations
 
