@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/netstar-labs/keystore/internal/kdf"
+	"github.com/netstar-labs/keystore/internal/ringfile"
 )
 
 var pass = []byte("correct horse battery")
@@ -413,5 +414,45 @@ func TestEmptyPassphraseDoesNotUnlock(t *testing.T) {
 	}
 	if _, err := k.Signer("a", pass); err != nil {
 		t.Fatalf("real passphrase no longer unlocks: %v", err)
+	}
+}
+
+// A ring made before the refusal existed can hold entries under the empty passphrase.
+// The refusal must not trap its owner: they can still unlock it, and passwd (whose old
+// passphrase may be empty) moves it to a real passphrase.
+func TestLegacyEmptyPassphraseRingCanBeRecovered(t *testing.T) {
+	k, _ := newRing(t)
+	e, err := encrypt("old", KindSecret, nil, []byte("payload"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.update(func(f *ringfile.File) error { f.Entries = append(f.Entries, e); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := k.Secret("old", nil); err != nil || string(got) != "payload" {
+		t.Fatalf("legacy ring does not unlock with the empty passphrase: %q, %v", got, err)
+	}
+	if _, err := k.Add("n", pass); !errors.Is(err, ErrPassphraseMismatch) {
+		t.Fatalf("Add to a legacy ring under a real passphrase = %v, want ErrPassphraseMismatch", err)
+	}
+	if err := k.ChangePassphrase(nil, pass); err != nil {
+		t.Fatalf("cannot recover a legacy empty-passphrase ring: %v", err)
+	}
+	if got, err := k.Secret("old", pass); err != nil || string(got) != "payload" {
+		t.Fatalf("after passwd: %q, %v", got, err)
+	}
+	if _, err := k.Secret("old", nil); !errors.Is(err, ErrBadPass) {
+		t.Fatalf("empty passphrase still unlocks after passwd: %v", err)
+	}
+}
+
+// The refusal is of EMPTY passphrases only: a single byte, even NUL, is a passphrase.
+func TestOneBytePassphraseIsNotEmpty(t *testing.T) {
+	k, _ := newRing(t)
+	if _, err := k.Add("a", []byte{0}); err != nil {
+		t.Fatalf("one NUL byte refused: %v", err)
+	}
+	if _, err := k.AddSecret("s", []byte{0}); err != nil {
+		t.Fatalf("second entry under the same one-byte passphrase refused: %v", err)
 	}
 }

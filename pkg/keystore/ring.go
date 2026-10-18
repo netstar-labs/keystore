@@ -77,7 +77,9 @@ func (k *Keystore) CurrentID() string { return k.f.Current }
 // Add generates a new Ed25519 key under id, encrypts it with passphrase and returns its
 // public key. The first signing key in a ring becomes current. If the ring already has
 // entries, passphrase must unlock them (ErrPassphraseMismatch otherwise); this is checked
-// before the key is generated.
+// before the key is generated. An empty passphrase is refused (as are all the methods
+// that add an entry); a ring that already holds entries under one is recovered with
+// ChangePassphrase.
 func (k *Keystore) Add(id string, passphrase []byte) (ed25519.PublicKey, error) {
 	var pub ed25519.PublicKey
 	err := k.addSigning(id, passphrase, func() (ed25519.PrivateKey, error) {
