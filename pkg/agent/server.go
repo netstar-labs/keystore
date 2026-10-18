@@ -26,6 +26,9 @@ import (
 var (
 	// ErrInUse reports that a live agent already answers on the socket path.
 	ErrInUse = errors.New("keystore agent: another agent is already listening on that socket")
+	// ErrNegativeLifetime is returned by Serve when TTL or Idle is negative; 0 is the
+	// spelling for "no limit".
+	ErrNegativeLifetime = errors.New("keystore agent: ttl and idle must not be negative (0 means no limit)")
 	// ErrExpired is returned by Serve when the agent stopped because its TTL or idle
 	// limit was reached.
 	ErrExpired = errors.New("keystore agent: lifetime or idle limit reached")
@@ -36,9 +39,9 @@ type Server struct {
 	signer crypto.Signer
 	pub    ed25519.PublicKey
 
-	// TTL stops the agent this long after Serve starts; 0 means no limit.
+	// TTL stops the agent this long after Serve starts; 0 means no limit, negative is refused.
 	TTL time.Duration
-	// Idle stops the agent after this long with no successful request; 0 means no limit.
+	// Idle stops the agent after this long with no successful request; 0 means no limit, negative is refused.
 	Idle time.Duration
 	// IOTimeout bounds each request's read and reply write. Default 5 s.
 	IOTimeout time.Duration
@@ -150,8 +153,13 @@ func checkDir(dir string) error {
 }
 
 // Serve answers requests on ln until Close, or until TTL or Idle expires (then it
-// returns ErrExpired). The socket is removed when the listener closes.
+// returns ErrExpired). A negative TTL or Idle is refused with ErrNegativeLifetime and ln
+// is closed. The socket is removed when the listener closes.
 func (s *Server) Serve(ln *Listener) error {
+	if s.TTL < 0 || s.Idle < 0 { // timers arm only for values > 0: a negative one would mean "no limit"
+		ln.Close()
+		return ErrNegativeLifetime
+	}
 	s.mu.Lock()
 	if s.closed { // Close won the race with Serve
 		s.mu.Unlock()
