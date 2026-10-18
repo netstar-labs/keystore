@@ -85,7 +85,7 @@ func (c *Client) roundTrip(op byte, payload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("keystore agent: %w", err)
 	}
 	if status != StatusOK {
-		return nil, fmt.Errorf("keystore agent: %s", p)
+		return nil, fmt.Errorf("keystore agent: %q", p) // bytes from the other end of the socket
 	}
 	return p, nil
 }

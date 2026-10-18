@@ -492,6 +492,88 @@ func TestAcceptFatalErrorStopsEverything(t *testing.T) {
 	}
 }
 
+// A rejected peer used to be logged with a trailing "<nil>" (the lookup error, when the
+// uid simply differed), which read as a failure of the logging itself.
+func TestRejectedPeerLogLineIsClean(t *testing.T) {
+	logged := make(chan string, 4)
+	r := start(t, func(s *Server) {
+		s.uidOf = func(*net.UnixConn) (int, error) { return os.Getuid() + 1, nil }
+		s.Log = func(format string, args ...any) { logged <- fmt.Sprintf(format, args...) }
+	})
+	Dial(r.sock)
+	select {
+	case line := <-logged:
+		if !strings.Contains(line, "peer uid") || strings.Contains(line, "<nil>") {
+			t.Errorf("log line %q: want the uids and no <nil>", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("rejection was not logged")
+	}
+}
+
+// When the peer's uid cannot be looked up at all, the log says that (the uid is meaningless
+// then) and carries the error, rather than a mismatch line with a made-up uid.
+func TestPeerUIDLookupFailureIsLoggedAsSuch(t *testing.T) {
+	logged := make(chan string, 4)
+	r := start(t, func(s *Server) {
+		s.uidOf = func(*net.UnixConn) (int, error) { return 0, errors.New("no credentials for this peer") }
+		s.Log = func(format string, args ...any) { logged <- fmt.Sprintf(format, args...) }
+	})
+	if _, err := Dial(r.sock); err == nil {
+		t.Fatal("agent served a peer whose uid could not be established")
+	}
+	select {
+	case line := <-logged:
+		if !strings.Contains(line, "lookup failed") || !strings.Contains(line, "no credentials for this peer") || strings.Contains(line, "want") {
+			t.Errorf("log line %q: want a lookup-failure line carrying the error", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("lookup failure was not logged")
+	}
+}
+
+// The directory error printed Perm() with %v (-rwxr-xr-x) beside a message saying 0700.
+func TestSocketDirErrorShowsOctalMode(t *testing.T) {
+	dir := sockDir(t)
+	os.Chmod(dir, 0o755)
+	_, err := Listen(filepath.Join(dir, "a.sock"))
+	if err == nil || !strings.Contains(err.Error(), "0755") || !strings.Contains(err.Error(), "0700") {
+		t.Errorf("error %v, want both the actual mode 0755 and the required 0700", err)
+	}
+}
+
+// The agent's error reply is bytes from the other end of the socket; the client must not
+// print them raw (a same-uid squatter at the path could send terminal escapes).
+func TestClientQuotesTheAgentsErrorText(t *testing.T) {
+	sock := filepath.Join(sockDir(t), "fake.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		readFrame(c)
+		writeFrame(c, StatusErr, []byte("boom\x1b[31m\r\nkeystore: verified: FORGED"))
+	}()
+	_, err = Dial(sock)
+	if err == nil {
+		t.Fatal("Dial succeeded against an error reply")
+	}
+	for _, r := range err.Error() {
+		if r < 0x20 || r == 0x7f {
+			t.Fatalf("raw control character %U in error %q", r, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("error lost the agent's message: %q", err)
+	}
+}
+
 // A socket path longer than sun_path used to fail inside bind with "invalid argument"
 // (naming no limit), after the path's lock file had already been created and left behind.
 func TestListenRejectsTooLongPathWithoutSideEffects(t *testing.T) {
