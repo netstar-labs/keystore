@@ -16,7 +16,7 @@ The service definitions in `agent-service/` are provided but never installed or 
 | [rotation](rotation/) | zero-downtime key rotation by overlap | `examples/rotation/run.sh` |
 | [secrets](secrets/) | a workload loads an opaque secret at start-up, then drops it | `examples/secrets/run.sh` |
 
-All are exercised by `go test ./examples/...` (the shell examples run their `run.sh`;
-`signed-requests` and `secrets` also have unit tests). Each covers the happy path and the
+All are exercised by `go test ./examples/...`, which runs every `run.sh`; `signed-requests`
+and `secrets` also have Go unit tests. Each covers the happy path and the
 refusals: tampered input, the wrong key, and an absent or expired agent where an agent is
 involved.
