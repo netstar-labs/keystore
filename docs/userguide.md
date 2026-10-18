@@ -40,8 +40,12 @@ keystore list -keystore prod.ks
 Resolved in this order:
 
 1. `KEYSTORE_PASSPHRASE` — convenient for automation, but visible in the process environment.
-   When it is set it silently wins over `-passfile`: `KEYSTORE_PASSPHRASE=old keystore keygen
-   -passfile strong` establishes the ring under `old`.
+   When it is set it wins over `-passfile` (the same holds for the keychain below, and for
+   `KEYSTORE_NEW_PASSPHRASE` over `-new-passfile` in `passwd`). Unlocking prints a note
+   (`KEYSTORE_PASSPHRASE is set, so -passfile is ignored`); *establishing* a passphrase (the
+   first entry into an empty ring: `keygen`, `add`, `import`, `add-secret`, `import-secret`; and
+   `passwd`'s new passphrase) is refused, because the ring would otherwise be created under a
+   value you did not mean. Unset one of the two.
 2. `-passfile FILE` — must be owned by you and mode 0600 or stricter, or it is refused.
 3. A no-echo prompt on the terminal (asked twice when setting a new passphrase).
 
@@ -53,8 +57,8 @@ falling through to a prompt.
 
 A **new** passphrase — the one given when the first key goes into an empty ring — must be at
 least 12 characters, from any source. Unlocking is never length-checked. If `keygen` is
-refused for a short passphrase it has already created the ring file, empty (the state `init`
-leaves); run it again. Upper bounds: the terminal prompt takes up to 1024 bytes and a
+refused (a short passphrase, or a shadowed `-passfile` as above) it has already created the
+ring file, empty (the state `init` leaves); run it again. Upper bounds: the terminal prompt takes up to 1024 bytes and a
 passfile up to 4096 bytes; `KEYSTORE_PASSPHRASE` has no cap. One ring has one passphrase:
 adding an entry with a different passphrase is refused (`passphrase does not match this
 ring`).
@@ -123,7 +127,7 @@ is unlocked.
 ```sh
 keystore sign   -keystore prod.ks -in msg > msg.sig            # unlocks the current key
 keystore sign   -agent /run/user/1000/keystore/agent.sock -in msg > msg.sig   # no passphrase
-keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid
+keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid, 3 = does not verify
 ```
 
 Signatures are pure Ed25519, written as base64 (or 64 raw bytes with `-raw`). Messages are
@@ -193,5 +197,6 @@ covered.
 
 ## Exit status
 
-`0` success (and `-h`/`help`); `2` usage error; `1` every other failure, including a signature
-that does not verify; `130` interrupted at a prompt.
+`0` success (and `-h`/`help`); `1` failure (a missing file, a wrong passphrase, a refused
+operation); `2` usage error; `3` a signature that does not verify (`verify`), so a script can tell a
+bad signature from a check that could not be made; `130` interrupted at a prompt.
