@@ -36,8 +36,10 @@ used. Another implementation must match these to read the same ring the same way
   trailing data is rejected, and a UTF-8 byte-order mark is rejected.
 - **Keys** match case-insensitively (`Magic` and `CURRENT` are read as `magic` and
   `current`); values are case-sensitive. A duplicate key silently takes the last value,
-  at the top level and inside an entry or `kdf`. Unknown fields are rejected (after that
-  case folding).
+  at the top level and inside an entry or `kdf`; for a duplicated `entries` the later array
+  replaces the earlier, but every occurrence must be valid (an invalid earlier array is
+  rejected). Entries are validated as they are read, so the first invalid one is reported.
+  Unknown fields are rejected (after that case folding).
 - **`null`** is the same as absent. `current` null or missing is `""`; `entries` null or
   missing is an empty ring, so `{"magic":"keystore/v1"}` is a valid empty ring.
 - **Numbers** must be JSON integers in range: `mem` and `time` fit uint32, `par` fits
@@ -106,7 +108,8 @@ Not authenticated:
 - `current`, the default signing key. Editing it makes `keystore sign` without `-id` (and an
   agent started without `-id`) use another of the ring's keys, with no error; `-id` is
   unaffected.
-- Entry order, and the set of entries. Deleting or reordering entries is accepted.
+- Entry order, and the set of entries. Deleting or reordering entries is accepted (deleting
+  the entry `current` names also needs `current` edited, or the ring is rejected at parse).
 - The ring as a whole. An older copy of the file is accepted and brings back removed keys
   and the passphrase in force when it was taken. An entry copied from another ring over the
   entry of the same `id` and `kind` unlocks if both rings share a passphrase; moving it to

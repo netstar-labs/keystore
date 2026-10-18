@@ -13,7 +13,7 @@ five working days.
   or ciphertext is detected when that entry is unlocked. (The ring as a whole is not; see
   below.)
 - A person or process that can write the ring but does not know the passphrase cannot read a
-  key or forge a signature under a key you did not put in it.
+  key or forge a signature under a key you did not create.
 - Cooperating writers (processes that take `<ring>.lock`) and crashes cannot lose or corrupt
   entries.
 - Secret material is never accepted on the command line and never written to a terminal or an
@@ -32,7 +32,8 @@ five working days.
 - **Root.** File modes and socket permissions do not constrain the superuser.
 - **The ring as a whole.** Authentication covers each entry, not the file. Someone who can
   write the ring can change `current` (so `keystore sign` without `-id`, or an agent started
-  without `-id`, uses a different key of yours), reorder or delete entries, edit `created`,
+  without `-id`, uses a different key of yours), reorder or delete entries (deleting the
+  `current` entry also needs `current` edited, or the ring no longer loads), edit `created`,
   or put back an older copy of the file, which brings back removed keys *and* the passphrase
   in force when it was taken (restoring a backup undoes a `passwd`). An entry copied from
   another ring that shares the passphrase unlocks in place of the entry with the same id
@@ -42,7 +43,8 @@ five working days.
   suspected ring-write compromise create a new key and passphrase rather than running `rm` or
   `passwd` on the old ring.
 - **`pub` is readable without the passphrase but authenticated only at unlock.** A ring
-  writer can swap it, and `export-pub` will then print their key (signing still fails closed).
+  writer can swap it, and `export-pub` and the fingerprints `list` shows will then be theirs
+  (signing still fails closed).
   Take the public key from the output of `keygen`/`add` when you create the key, or check a
   test signature against the key you publish.
 - **Revocation.** `rm` and `passwd` change the ring, not its earlier copies: backups, old
@@ -74,8 +76,10 @@ five working days.
   unreadable. This is no worse than deleting the file; write access to the ring is the
   boundary.
 - **Ring JSON is decoded with Go's `encoding/json`**, which matches keys case-insensitively
-  and lets a duplicate key win. Every value that is used is authenticated, so this cannot
-  bypass the encryption, but another tool might read a different value than this one does.
+  and lets a duplicate key win. Every entry field that protects a key is authenticated, so
+  this cannot bypass the encryption; `current`, entry order and `created` are not, and anyone
+  who can write the ring can change them anyway. Another tool might read a different value
+  than this one does.
 - **Locking is advisory and held across the KDF.** A process that ignores `<ring>.lock` can
   race. `add` and `passwd` hold the lock while they derive keys (roughly 0.1–0.3 s per derivation at
   the default cost; `passwd` does two per entry), so with a large ring a concurrent writer
