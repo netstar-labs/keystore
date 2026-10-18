@@ -1,13 +1,21 @@
-# Release v0.4.0 — prepared, not yet tagged
+# Release v0.4.0
 
-*Status: pre-flight complete on `feat/v0.4.0-release` at `3beadf0`. Tagging, pushing and
-publishing need sign-off and a remote; neither exists yet.*
+*Status: pre-flight complete; tagged locally (annotated). Pushing and publishing need a
+remote, which does not exist yet.*
 
 ## Version rationale
 
-First tag. The roadmap and user guide number the feature sets v0.1.0–v0.3.0, which were
-built and merged locally but never tagged; tagging the complete set as **v0.4.0** keeps the
-docs' "Release" column true. v0-forever policy: no v1, no `/vN` module path. The ring format
+Each roadmap phase is tagged on its last commit, so the user guide's "Release" column is
+true of the tags:
+
+| Tag | Commit | Contents |
+|---|---|---|
+| v0.1.0 | bc78a5e | ring format, signing keys, core verbs |
+| v0.2.0 | 6c5d501 | secrets, `passwd`, keychain |
+| v0.3.0 | 7d66928 | agent, `sign`/`verify`, examples |
+| v0.4.0 | this commit | review fixes F1–F4, release tooling, CI |
+
+v0.1.0–v0.3.0 predate the adversarial review: they carry F1–F4. Use v0.4.0. v0-forever policy: no v1, no `/vN` module path. The ring format
 is separately versioned (`keystore/v1`) and is the compatibility contract.
 
 ## Release notes
@@ -31,11 +39,11 @@ before the fix)
 
 | # | Severity | Fix | Commit |
 |---|---|---|---|
-| F1 | high | Agent stop closes open connections; a busy connection no longer keeps the key alive past TTL/idle/SIGTERM | 6b9113f |
-| F2 | medium | Out-of-range `created` rejected; `Marshal` refuses output `Parse` would reject | 92ab347 |
-| F3 | medium | Symlinked ring paths resolved before lock and write | cb06370 |
-| F4 | low | Socket path owned by an exclusive lock; racing agents cannot orphan one another | f757f48 |
-| minors | low | Bounded key-file reads, FIFO passfile cannot block, failed exports leave no partial file, no passphrase buffer regrowth | 8d062a9 |
+| F1 | high | Agent stop closes open connections; a busy connection no longer keeps the key alive past TTL/idle/SIGTERM | c5efcb1 |
+| F2 | medium | Out-of-range `created` rejected; `Marshal` refuses output `Parse` would reject | 8db29ef |
+| F3 | medium | Symlinked ring paths resolved before lock and write | a013de9 |
+| F4 | low | Socket path owned by an exclusive lock; racing agents cannot orphan one another | ca03b9e |
+| minors | low | Bounded key-file reads, FIFO passfile cannot block, failed exports leave no partial file, no passphrase buffer regrowth | b258e75 |
 
 Documented, not fixed (SECURITY.md "Known limits"): keychain hex for non-ASCII passphrases,
 CPU cost of a crafted ring, case-insensitive/duplicate JSON keys, CLI-only length minimum.
