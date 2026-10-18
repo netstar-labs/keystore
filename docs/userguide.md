@@ -152,8 +152,10 @@ already exist, be yours and mode 0700, and the whole socket path must fit the op
 limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
 It stops — removing the socket — on SIGINT/SIGTERM, after `-ttl` (a hard stop), or after
 `-idle` without a successful request (any successful request counts, including a public-key
-fetch); `0` disables either and a negative value is refused. A second agent will not take
-over a live socket. Wire format: [agent-protocol.md](agent-protocol.md).
+fetch); `0` disables either and a negative value is refused. It also stops, exiting 1, if
+its socket file is removed or replaced. A second agent will not take over a live socket. The
+agent loads its key once: after `rm` or `passwd` retires or re-encrypts a key, stop and restart
+any agent that holds it (it keeps signing with what it loaded). Wire format: [agent-protocol.md](agent-protocol.md).
 Service definitions: [examples/agent-service](../examples/agent-service/).
 
 Go programs use the agent as a `crypto.Signer`:
