@@ -153,9 +153,14 @@ func TestServerWireGolden(t *testing.T) {
 	}
 
 	// Error replies on the unknown-op and oversize paths close the connection (doc: "the
-	// connection is closed"); P and S replies leave it open for another request.
-	_, c := rawExchange(t, sock, []byte{0x58, 0, 0, 0, 0})
-	if n, err := c.Read(make([]byte, 1)); n != 0 || err != io.EOF {
-		t.Errorf("connection after an unknown op: read %d, %v; want EOF", n, err)
+	// connection is closed"). The short read deadline matters: the server's own idle timeout
+	// (5 s) would also end the read with EOF, which would pass a server that never closes.
+	for name, req := range map[string]string{"unknown op": "5800000000", "oversize": "5300100001", "oversize max uint32": "53ffffffff"} {
+		b, _ := hex.DecodeString(req)
+		_, c := rawExchange(t, sock, b)
+		c.SetReadDeadline(time.Now().Add(time.Second))
+		if n, err := c.Read(make([]byte, 1)); n != 0 || err != io.EOF {
+			t.Errorf("connection after %s: read %d, %v; want EOF within 1 s", name, n, err)
+		}
 	}
 }

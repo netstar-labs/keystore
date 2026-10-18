@@ -30,8 +30,8 @@ with OpenSSL 3.5.9 in an Alpine container; the agent frames were written from
 
 "Pinned before" is what existed on `main` (43655ff). "Golden" is what this branch adds.
 All mutations below were applied one at a time to a copy of the source, the named test
-run, then the file restored (`git status` clean of source changes afterwards); the script
-and raw output are in the session scratchpad (`a6/mutate.py`, `a6/mutation.out`).
+run, then the file restored (`git status` clean of source changes afterwards). The script and
+raw output were session scratch and are not kept; the skeptic re-ran 30 mutants of its own (28 killed; the two survivors, a server that keeps the connection open after an error, are now killed by a 1 s read deadline).
 
 | # | Artifact (encoder) | Versioned? | Pinned before | Silent-change cost | Golden added | Mutation (all KILLED = test failed) |
 |---|---|---|---|---|---|---|

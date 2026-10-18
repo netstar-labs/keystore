@@ -67,3 +67,7 @@ cleared) and it exits 1.
 
 The reference client (`pkg/agent.Dial`) verifies every returned signature against the
 agent's public key before returning it, and refuses prehash or context options.
+
+`Dial` does not pin the agent's key: it trusts whatever 32-byte key the agent returns for
+`'P'` and checks signatures only against it. A caller that wants a specific key compares
+`Public()` with the key it expects.
