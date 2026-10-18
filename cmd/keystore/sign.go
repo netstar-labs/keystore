@@ -21,8 +21,8 @@ import (
 // digest manifest (e.g. sha256sum output) for anything larger.
 const maxMessage = agent.MaxPayload
 
-// maxInputFile bounds the small files verify reads whole: a PEM key or a signature is
-// well under 1 KiB.
+// maxInputFile bounds the small files read whole (a PEM key to import or to verify with,
+// a signature): each is well under 1 KiB.
 const maxInputFile = 64 << 10
 
 var errBadSig = errors.New("keystore: signature does not verify")
