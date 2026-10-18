@@ -23,10 +23,13 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/pkg/keystore"
 )
 
@@ -280,5 +283,48 @@ func TestKATFingerprint(t *testing.T) {
 		if len(got) != len("SHA256:")+43 || got[len(got)-1] == '=' {
 			t.Errorf("%s: %q is not SHA256: plus 43 unpadded base64 characters", v.name, got)
 		}
+	}
+}
+
+// TestKATWrittenKDFParams: what a writer stamps into the file is the documented
+// production cost (docs/format.md "Encryption": 64 MiB, t=3, p=1, 16-byte salt, argon2id).
+// TestMain lowers kdf.Default for speed, so it is set to the shipped values here and the
+// written JSON is read back raw, not through the library.
+func TestKATWrittenKDFParams(t *testing.T) {
+	prod := kdf.Default
+	kdf.Default = kdf.Cost{Mem: 64 * 1024, Time: 3, Par: 1}
+	defer func() { kdf.Default = prod }()
+
+	path := filepath.Join(t.TempDir(), "r.ks")
+	k, err := keystore.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv := ed25519.NewKeyFromSeed(unhex(t, rfc8032Vectors[0].seed))
+	if err := k.Import("k", priv, []byte("kat passphrase")); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Entries []struct {
+			KDF struct {
+				Algo string
+				Mem  uint32
+				Time uint32
+				Par  uint8
+				Salt []byte
+			} `json:"kdf"`
+			Nonce []byte
+		}
+	}
+	if err := json.Unmarshal(b, &f); err != nil || len(f.Entries) != 1 {
+		t.Fatalf("written ring: %v, %d entries\n%s", err, len(f.Entries), b)
+	}
+	e := f.Entries[0]
+	if e.KDF.Algo != "argon2id" || e.KDF.Mem != 65536 || e.KDF.Time != 3 || e.KDF.Par != 1 || len(e.KDF.Salt) != 16 || len(e.Nonce) != 12 {
+		t.Fatalf("written kdf/nonce = %+v, nonce %d bytes; want argon2id 65536/3/1, 16-byte salt, 12-byte nonce", e.KDF, len(e.Nonce))
 	}
 }

@@ -105,6 +105,9 @@ func TestKATGCMOpen(t *testing.T) {
 // TestKATGCMTamper flips every single bit of every input of every vector. Each must be
 // ErrOpen: key, nonce, ciphertext, tag, and aad are all authenticated.
 func TestKATGCMTamper(t *testing.T) {
+	if seal.ErrOpen.Error() != "keystore: wrong passphrase or corrupt entry" {
+		t.Errorf("ErrOpen text changed: %q", seal.ErrOpen)
+	}
 	for _, v := range gcmVectors {
 		t.Run(v.name, func(t *testing.T) {
 			key, nonce, aad := unhex(t, v.key), unhex(t, v.nonce), unhex(t, v.aad)
@@ -130,8 +133,12 @@ func TestKATGCMTamper(t *testing.T) {
 						case "aad":
 							a[i] ^= 1 << bit
 						}
-						if _, err := seal.Open(k, n, c, a); !errors.Is(err, seal.ErrOpen) {
+						pt, err := seal.Open(k, n, c, a)
+						if !errors.Is(err, seal.ErrOpen) {
 							t.Fatalf("flip %s byte %d bit %d: err = %v, want ErrOpen", p.name, i, bit, err)
+						}
+						if pt != nil {
+							t.Fatalf("flip %s byte %d bit %d: ErrOpen came with plaintext %x", p.name, i, bit, pt)
 						}
 					}
 				}
