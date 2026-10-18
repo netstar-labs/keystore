@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/internal/ringfile"
+	"strings"
 )
 
 var pass = []byte("correct horse battery")
@@ -510,5 +512,41 @@ func TestOneBytePassphraseIsNotEmpty(t *testing.T) {
 	}
 	if _, err := k.AddSecret("s", []byte{0}); err != nil {
 		t.Fatalf("second entry under the same one-byte passphrase refused: %v", err)
+	}
+}
+
+// Every refusal of a key file used to say "expected exactly one PEM block of the right
+// type", which read as "you gave two blocks" for an encrypted, PKCS#1 or SEC1 key. It now
+// says what was found and, for an encrypted key, what to do.
+func TestPEMErrorsSayWhatWasFound(t *testing.T) {
+	block := func(typ string) []byte {
+		return pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: []byte("x")})
+	}
+	_, priv, _ := ed25519.GenerateKey(nil)
+	good, _ := MarshalPrivateKeyPEM(priv)
+	for name, tc := range map[string]struct {
+		in   []byte
+		want []string
+	}{
+		"encrypted PKCS#8":  {block("ENCRYPTED PRIVATE KEY"), []string{"ENCRYPTED PRIVATE KEY", "decrypt"}},
+		"PKCS#1":            {block("RSA PRIVATE KEY"), []string{"RSA PRIVATE KEY", "PRIVATE KEY"}},
+		"SEC1":              {block("EC PRIVATE KEY"), []string{"EC PRIVATE KEY"}},
+		"public as private": {block("PUBLIC KEY"), []string{"PUBLIC KEY"}},
+		"no PEM at all":     {[]byte("not a pem file"), []string{"no PEM block"}},
+		"empty":             {nil, []string{"no PEM block"}},
+		"two blocks":        {append(append([]byte(nil), good...), good...), []string{"more than one", "exactly one"}},
+		"trailing text":     {append(append([]byte(nil), good...), []byte("trailing text\n")...), []string{"after the PEM block"}},
+		"legacy headers":    {[]byte("-----BEGIN PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n\neA==\n-----END PRIVATE KEY-----\n"), []string{"header"}},
+	} {
+		_, err := ParsePrivateKeyPEM(tc.in)
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: error %q does not mention %q", name, err, w)
+			}
+		}
 	}
 }
