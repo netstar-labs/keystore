@@ -4,10 +4,13 @@
 backup or CI variable. Here the key is generated inside the encrypted ring and never exists
 in plaintext on disk; the public half is what gets distributed.
 
-**Steps:** write a 0600 passfile → `keygen` into the ring → `export-pub` to verifiers →
-`add-secret` for the workload → `list` (no passphrase needed). The script then proves the
-guard rails: a world-readable passfile, a short new passphrase, a second passphrase in the
-same ring, and re-initialising an existing ring are all refused.
+**Steps:** write a 0600 passfile → `keygen` into the ring, keeping the public key it prints
+→ publish that public key to verifiers → `add-secret` for the workload → `list` (no
+passphrase needed). The public key comes from `keygen`'s output, not from a later `export-
+pub`: `export-pub` reads a copy stored in the ring that is checked only when the entry is
+unlocked, so whoever can write the ring could make it print a different key. The script then
+proves the guard rails: a world-readable passfile, a short new passphrase, a second
+passphrase in the same ring, and re-initialising an existing ring are all refused.
 
 **Does not protect against:** anyone who can read *both* the ring and the passfile — keep the
 passfile out of the ring's backups, or use the agent so services never need it. Root.

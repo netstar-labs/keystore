@@ -6,6 +6,10 @@
 
 - Created mode 0600 (under `umask 0177`, then `chmod`) in a directory owned by the agent's
   user with no group or other permissions; the agent refuses any other directory.
+- The socket's directory must already exist (the agent does not create it), and the whole
+  socket path must be shorter than the OS limit for a unix socket address (about 104 bytes on
+  macOS, 108 on Linux); a longer path fails with `listen unix …: bind: invalid argument`, and
+  the `<socket>.lock` file created just before is left behind.
 - The agent owns the path through an exclusive `flock` on `<socket>.lock`, held for its
   whole life. A second agent — even one starting at the same instant — refuses to start and
   never touches the socket. Without the lock held, a socket something still answers on is
@@ -34,7 +38,7 @@ carry several requests in sequence; clients use one per connection.
 
 | `b0` | Payload | Reply payload on success |
 |---|---|---|
-| `'P'` (0x50) | empty | the 32-byte Ed25519 public key |
+| `'P'` (0x50) | none; any payload sent is ignored | the 32-byte Ed25519 public key |
 | `'S'` (0x53) | the message (≤ 1 MiB) | the 64-byte pure-Ed25519 signature over the message (RFC 8032, no prehash, no context) |
 
 ## Replies
@@ -49,10 +53,15 @@ An unknown operation gets an error reply and the connection is closed.
 ## Lifetime
 
 `-ttl D` stops the agent `D` after start; `-idle D` stops it after `D` with no successful
-request. `0` disables either; a negative value is refused (exit 1). On expiry, SIGINT or SIGTERM the agent closes the listener
-(removing the socket) **and every open connection**, so a client holding a connection open
-cannot extend its life; it then waits for handlers to return (bounded by the deadline),
-clears the key, and exits 0.
+request (every successful request counts, `'P'` included; `-ttl` is the hard stop). `0`
+disables either; a negative value is refused (exit 1). On expiry, SIGINT or SIGTERM the
+agent closes the listener (removing the socket) **and every open connection**, so a client
+holding a connection open cannot extend its life; it then waits for handlers to return
+(bounded by the deadline), clears the key, and exits 0.
+
+Running out of file descriptors (EMFILE/ENFILE) on `accept` is logged and retried. Any
+other accept error stops the agent the same way (socket removed, connections closed, key
+cleared) and it exits 1.
 
 ## Client obligations
 

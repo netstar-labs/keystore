@@ -44,8 +44,10 @@ go install github.com/netstar-labs/keystore/cmd/keystore@latest
 go install github.com/netstar-labs/keystore/cmd/keystore-agent@latest
 ```
 
-Requires Go 1.27 or newer; macOS and Linux. Release archives (`build/keystore --release`)
-are reproducible: `-trimpath`, `CGO_ENABLED=0`, the toolchain pinned in `go.mod`.
+Requires Go 1.27 or newer; macOS and Linux. Release builds (`build/keystore --release`) use
+`-trimpath`, `CGO_ENABLED=0` and the toolchain pinned in `go.mod`, so the binaries come out
+byte-identical from the same git checkout. The archives and the SBOM embed timestamps, so
+their checksums differ from run to run.
 
 ## Examples
 

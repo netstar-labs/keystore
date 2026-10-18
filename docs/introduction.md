@@ -13,7 +13,9 @@ keys and opaque secrets. Each private part is encrypted with AES-256-GCM under a
 from a passphrase with argon2id, a deliberately memory-hungry function that makes guessing
 expensive. Public keys sit in the clear so anyone can list the ring or export a public key
 without unlocking anything. Every field that gives an entry its meaning is authenticated, so
-a tampered entry fails loudly instead of decrypting into something wrong. Every change is
+a tampered entry fails loudly instead of decrypting into something wrong. (The ring around the
+entries is not: someone who can write the file can change which key is the default or put an
+older copy back, though not read a key or forge a signature.) Every change is
 locked, written to a temporary file, synced, and swapped in atomically.
 
 The part most keyrings leave out is the agent. `keystore-agent` opens one key once, holds it
