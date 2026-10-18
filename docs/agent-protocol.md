@@ -14,7 +14,7 @@
   whole life. A second agent — even one starting at the same instant — refuses to start and
   never touches the socket. Without the lock held, a socket something still answers on is
   also refused; a stale one is removed; any non-socket file at the path is refused.
-- The socket is removed when the agent stops: SIGINT, SIGTERM, `-ttl` or `-idle` expiry.
+- The socket is removed when the agent stops: SIGINT, SIGTERM, SIGHUP (a closed terminal; there is no reload; ignored if inherited as ignored, as under `nohup`), `-ttl` or `-idle` expiry.
 
 ## Peer check
 
@@ -54,7 +54,7 @@ An unknown operation gets an error reply and the connection is closed.
 
 `-ttl D` stops the agent `D` after start; `-idle D` stops it after `D` with no successful
 request (every successful request counts, `'P'` included; `-ttl` is the hard stop). `0`
-disables either; a negative value is refused (exit 1). On expiry, SIGINT or SIGTERM the
+disables either; a negative value is refused (exit 1). On expiry, SIGINT, SIGTERM or SIGHUP the
 agent closes the listener (removing the socket) **and every open connection**, so a client
 holding a connection open cannot extend its life; it then waits for handlers to return
 (bounded by the deadline), clears the key, and exits 0.

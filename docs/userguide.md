@@ -150,7 +150,7 @@ readable by the same user (`ps eww`, `/proc/PID/environ`). The agent has no defa
 `-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required. The socket's directory must
 already exist, be yours and mode 0700, and the whole socket path must fit the operating system's
 limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
-It stops — removing the socket — on SIGINT/SIGTERM, after `-ttl` (a hard stop), or after
+It stops — removing the socket — on SIGINT/SIGTERM/SIGHUP (there is no reload, so SIGHUP stops it, unless it was started with SIGHUP ignored, as `nohup` does, which is respected), after `-ttl` (a hard stop), or after
 `-idle` without a successful request (any successful request counts, including a public-key
 fetch); `0` disables either and a negative value is refused. It also stops, exiting 1, if
 its socket file is removed or replaced. A second agent will not take over a live socket. The

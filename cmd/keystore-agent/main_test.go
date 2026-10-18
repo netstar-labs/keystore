@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode"
@@ -184,5 +185,95 @@ func TestServingLineAndUsageAreInertAndPresent(t *testing.T) {
 	out, _ = cmd.CombinedOutput()
 	if !strings.Contains(string(out), "Usage of keystore-agent:") || !strings.Contains(string(out), "-keystore") {
 		t.Errorf("usage text missing after a mistyped flag: %q", out)
+	}
+}
+
+// SIGHUP is what a terminal-launched agent gets when its terminal closes. The agent has no
+// reload, so it must stop exactly as it does on SIGINT/SIGTERM: socket removed, exit 0.
+// Left to the default action it died with status 129 and the socket pointing at nothing.
+func TestSignalsStopTheAgentCleanly(t *testing.T) {
+	for name, s := range map[string]os.Signal{"SIGHUP": syscall.SIGHUP, "SIGTERM": syscall.SIGTERM, "SIGINT": os.Interrupt} {
+		t.Run(name, func(t *testing.T) {
+			cmd, sock := startAgent(t, false)
+			if err := cmd.Process.Signal(s); err != nil {
+				t.Fatal(err)
+			}
+			if err := waitExit(t, cmd, name); err != nil {
+				t.Fatalf("agent after %s: %v, want clean exit 0", name, err)
+			}
+			if _, err := os.Lstat(sock); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("socket left behind after %s", name)
+			}
+		})
+	}
+}
+
+// An agent started under nohup (SIGHUP inherited as ignored) must keep ignoring it: Notify
+// would silently replace the ignore with a handler, so the agent must not ask for it.
+func TestInheritedIgnoredSIGHUPIsHonoured(t *testing.T) {
+	cmd, sock := startAgent(t, true)
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // absence of a stop can only be observed by waiting
+	if _, err := agent.Dial(sock); err != nil {
+		t.Fatalf("agent not serving after an ignored SIGHUP: %v", err)
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitExit(t, cmd, "SIGTERM"); err != nil {
+		t.Fatalf("agent after SIGTERM: %v, want clean exit 0", err)
+	}
+	if _, err := os.Lstat(sock); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("socket left behind after SIGTERM")
+	}
+}
+
+// startAgent re-executes the test binary as keystore-agent and returns once it is serving.
+// A successful Dial fetches the public key through Serve, which only starts after the signal
+// handlers are installed, so a signal sent after startAgent returns cannot race them.
+// ignoreHUP starts it the way nohup does: through a shell that sets SIGHUP to ignored.
+func startAgent(t *testing.T, ignoreHUP bool) (*exec.Cmd, string) {
+	t.Helper()
+	ring, sock, _ := fixture(t)
+	pf := filepath.Join(t.TempDir(), "pf")
+	if err := os.WriteFile(pf, []byte(pass), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"-keystore", ring, "-sock", sock, "-passfile", pf}
+	cmd := exec.Command(os.Args[0], args...)
+	if ignoreHUP {
+		cmd = exec.Command("sh", append([]string{"-c", `trap "" HUP; exec "$0" "$@"`, os.Args[0]}, args...)...)
+	}
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill() })
+	waitFor(t, sock)
+	for i := 0; ; i++ {
+		_, err := agent.Dial(sock)
+		if err == nil {
+			return cmd, sock
+		}
+		if i == 200 {
+			t.Fatalf("agent never answered: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func waitExit(t *testing.T, cmd *exec.Cmd, what string) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		cmd.Process.Kill()
+		t.Fatalf("agent ignored %s", what)
+		return nil
 	}
 }
