@@ -3,14 +3,18 @@
 ## Packages and dependencies
 
 ```
-cmd/keystore ─────────┐                     cmd/keystore-agent
-   │                  │                           │
-   ▼                  ▼                           ▼
-internal/passphrase  pkg/keystore ◄────────── pkg/agent ──► internal/peercred
-   │                  │
-   ▼                  ├──► internal/ringfile ──► internal/ids
-internal/term         ├──► internal/seal
-internal/keychain     └──► internal/kdf ──► golang.org/x/crypto/argon2
+cmd/keystore        ──► pkg/keystore, pkg/agent,
+                        internal/passphrase, internal/keychain, internal/term
+cmd/keystore-agent  ──► pkg/keystore, pkg/agent, internal/passphrase
+pkg/agent           ──► pkg/keystore, internal/peercred
+pkg/keystore        ──► internal/ringfile, internal/seal, internal/kdf, internal/ids
+internal/ringfile   ──► internal/ids, internal/kdf, internal/seal
+internal/seal       ──► internal/kdf
+internal/passphrase ──► internal/keychain, internal/term
+internal/keychain   ──► internal/ids
+internal/kdf        ──► golang.org/x/crypto/argon2
+internal/term, internal/peercred ──► golang.org/x/sys/unix
+internal/ids        imports nothing from this module
 ```
 
 Rules: `pkg/agent` may import `pkg/keystore`, never the reverse. `internal/` packages are
@@ -52,5 +56,12 @@ answers `sign` requests on a unix socket after checking the caller's uid. Client
 - **Advisory locking.** `flock` on a sidecar file protects cooperating writers. A process
   that ignores the lock can still race; nothing short of a server prevents that.
 - **No legacy formats.** One KDF, one cipher, one format version — less code to audit.
-- **Wrong passphrase and tampering are indistinguishable.** Both are an AEAD failure; telling
-  them apart would leak information to an attacker.
+- **Wrong passphrase and entry tampering are indistinguishable.** Both are an AEAD failure
+  when the entry is unlocked; telling them apart would leak information to an attacker. A
+  field that is out of range or malformed is different: it fails at parse, for the whole
+  ring, as "not a keystore file".
+- **Entries are authenticated, the ring is not.** The AEAD covers each entry's own fields;
+  nothing covers `current`, entry order, which entries exist, or which version of the file
+  this is. A key that authenticated the whole file would need the passphrase for `use`, `rm`
+  and listing, and a rollback check needs state outside the file. See
+  [format.md](format.md#what-is-authenticated) and decision 39.

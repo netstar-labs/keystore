@@ -45,9 +45,12 @@ owner-only unix socket. Peer-uid checked, lifetime- and idle-limited, refuses to
 live socket.
 
 ### Library (`github.com/netstar-labs/keystore/pkg/keystore`, agent in `/pkg/agent`)
-`Create`, `Open`, `OpenOrCreate`; `Add`, `Import`, `AddSecret`, `ImportSecret`, `Signer`,
-`Secret`, `Public`, `List`, `Use`, `Remove`, `ExportPrivate`, `ChangePassphrase`;
-`DialAgent`, `Serve`; PEM helpers; `ResolveSigner`; passphrase resolution.
+`pkg/keystore`: `Create`, `Open`, `OpenOrCreate`; `Add`, `Import`, `AddSecret`,
+`ImportSecret`, `Signer`, `Secret`, `Public`, `List`, `Use`, `Remove`, `ExportPrivate`,
+`ChangePassphrase`; `Fingerprint`; PEM helpers. A `*Keystore` is not safe for concurrent
+use. `pkg/agent`: `Dial` (client, a `crypto.Signer`), `Listen`, `NewServer` and
+`Server.Serve` (server), `ResolveSigner`. Passphrase resolution is `internal/passphrase`
+(CLI and agent only), not library API.
 
 ### Passphrase sources (never a flag)
 `KEYSTORE_PASSPHRASE` → macOS Keychain (`KEYSTORE_KEYCHAIN=<service>`) → `-passfile` →
@@ -56,11 +59,19 @@ no-echo prompt. A **12-character minimum** applies whenever a passphrase is esta
 ### Security properties every release must meet
 1. A copy of the ring file alone reveals no private material (argon2id 64 MiB/t=3/p=1,
    AES-256-GCM, per-entry salt and nonce).
-2. Any modification of an entry — id, kind, public key, KDF parameters, ciphertext — fails
-   authentication with one named error.
+2. Any modification of an entry's id, kind, public key, KDF parameters, salt, nonce or
+   ciphertext makes that entry fail to unlock with `ErrBadPass` (the same error as a wrong
+   passphrase). Fields that are out of range or malformed fail earlier, at parse, with
+   `ErrBadFormat`, and make the whole ring unreadable. Not authenticated: `created`,
+   `current`, entry order, the set of entries, and which version of the file this is (a
+   restored older copy is accepted, with its old passphrase). A ring writer therefore
+   cannot read a key or forge a signature, but can redirect a default-key signature to
+   another of the victim's keys, resurrect a removed key or deny service; see
+   [format.md](../format.md#what-is-authenticated) and decision 39.
 3. A crash at any point leaves either the old ring or the new ring, never a torn one, and
    the new one is durable once the command returns.
-4. Concurrent processes cannot lose each other's writes.
+4. Cooperating processes (those that take `<ring>.lock`) cannot lose each other's writes.
+   The lock is advisory; a process that ignores it can race.
 5. One passphrase per ring, enforced.
 6. No secret material on argv, and none written to a terminal or an existing file by
    accident.
@@ -81,7 +92,7 @@ and is exercised by a test in CI so it cannot rot.
 |---|---|
 | `examples/provision/` | One-time setup by an operator: `init`, `keygen`, `export-pub`, `add-secret`; passfile at 0600; the public key published to the verifying side |
 | `examples/agent-service/` | Running `keystore-agent` as a service — a `systemd` unit (Linux) and a `launchd` plist (macOS), owner-only socket directory, passphrase from a 0600 passfile, `-ttl`/`-idle` and restart behaviour |
-| `examples/signed-requests/` | Service A signs outbound HTTP requests (method, path, body hash, timestamp, nonce) through `DialAgent`; service B verifies with only the public key; replay and clock-skew rejection shown |
+| `examples/signed-requests/` | Service A signs outbound HTTP requests (method, path, body hash, timestamp, nonce) through `agent.Dial`; service B verifies with only the public key; replay and clock-skew rejection shown |
 | `examples/ci-release/` | A CI job signs a build artifact via the agent socket (`keystore sign -agent`), publishes `artifact.sig`; a deploy host verifies (`keystore verify`) before installing; the CI job never sees the key or the passphrase |
 | `examples/rotation/` | Zero-downtime key rotation: add the next key, publish its public half, verifiers accept both, `use` switches the signer, `rm` retires the old one |
 | `examples/secrets/` | A workload fetching an opaque secret (an HMAC or API key) from the ring at start-up, then dropping it from memory; contrast with the env-var anti-pattern |
