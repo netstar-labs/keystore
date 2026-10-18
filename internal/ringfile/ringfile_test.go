@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -377,4 +378,122 @@ func TestSaveRefusesUnreadableOutput(t *testing.T) {
 		t.Fatal("refused Save modified the ring")
 	}
 	assertNoTemps(t, filepath.Dir(path))
+}
+
+// totalAlloc runs fn and reports how many bytes it allocated, measured from a settled heap.
+func totalAlloc(fn func()) uint64 {
+	var a, b runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&a)
+	fn()
+	runtime.ReadMemStats(&b)
+	return b.TotalAlloc - a.TotalAlloc
+}
+
+// A ring at the size cap made of empty objects must fail at the first one without first
+// materialising every element: the file cap bounds the input, this bounds the memory.
+func TestParseDoesNotAmplify(t *testing.T) {
+	n := (MaxSize - 128) / 3 // "{}," is 3 bytes
+	body := []byte(`{"magic":"keystore/v1","current":"","entries":[` + strings.Repeat("{},", n) + `{}]}`)
+	if len(body) > MaxSize {
+		t.Fatalf("test ring is %d bytes, over MaxSize", len(body))
+	}
+	var err error
+	grew := totalAlloc(func() { _, err = Parse(body) })
+	if !errors.Is(err, ErrBadFormat) {
+		t.Fatalf("Parse = %v, want ErrBadFormat", err)
+	}
+	if grew > 96<<20 {
+		t.Fatalf("Parse of a %d MiB ring allocated %d MiB", len(body)>>20, grew>>20)
+	}
+}
+
+func bigRing(t *testing.T, n int) *File {
+	f := &File{}
+	for i := range n {
+		f.Entries = append(f.Entries, entry(t, fmt.Sprintf("k%d", i), KindSecret))
+	}
+	return f
+}
+
+func TestParseLargeValidRing(t *testing.T) {
+	f := bigRing(t, 5000)
+	b, err := Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := Parse(b)
+	if err != nil {
+		t.Fatalf("Parse(Marshal(f)) = %v", err)
+	}
+	if len(g.Entries) != 5000 || g.Find("k4999") == nil {
+		t.Fatalf("lost entries: %d", len(g.Entries))
+	}
+	b2, _ := Marshal(g)
+	if !bytes.Equal(b, b2) {
+		t.Fatal("not canonical")
+	}
+	// Allocation stays proportional to the ring, not a multiple of it.
+	if grew := totalAlloc(func() { Parse(b) }); grew > uint64(len(b))*16 {
+		t.Fatalf("Parse of %d bytes allocated %d bytes", len(b), grew)
+	}
+}
+
+func TestParseReportsFirstBadEntryInLargeRing(t *testing.T) {
+	b, err := Marshal(bigRing(t, 5000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Two bad entries; the earlier one (2500) is the one reported.
+	s = strings.Replace(s, `"id": "k2500"`, `"id": "-bad"`, 1)
+	s = strings.Replace(s, `"id": "k4000"`, `"id": "-worse"`, 1)
+	_, err = Parse([]byte(s))
+	if !errors.Is(err, ErrBadFormat) || !strings.Contains(err.Error(), "entry 2500:") {
+		t.Fatalf("Parse = %v, want ErrBadFormat at entry 2500", err)
+	}
+	// A duplicate id deep in the ring is still caught, with its index.
+	d := strings.Replace(string(b), `"id": "k3000"`, `"id": "k17"`, 1)
+	_, err = Parse([]byte(d))
+	if !errors.Is(err, ErrBadFormat) || !strings.Contains(err.Error(), "entry 3000: duplicate id") {
+		t.Fatalf("Parse = %v, want duplicate id at entry 3000", err)
+	}
+}
+
+func TestParseEntriesShapes(t *testing.T) {
+	good, _ := Marshal(sample(t))
+	for name, c := range map[string]struct {
+		in      string
+		entries int
+		bad     bool
+	}{
+		"missing":                {`{"magic":"keystore/v1"}`, 0, false},
+		"null":                   {`{"magic":"keystore/v1","entries":null}`, 0, false},
+		"empty":                  {`{"magic":"keystore/v1","entries":[]}`, 0, false},
+		"null elem":              {`{"magic":"keystore/v1","entries":[null]}`, 0, true},
+		"not array":              {`{"magic":"keystore/v1","entries":{}}`, 0, true},
+		"scalar":                 {`{"magic":"keystore/v1","entries":[1]}`, 0, true},
+		"unknown field in entry": {strings.Replace(string(good), `"kind"`, `"extra":1,"kind"`, 1), 0, true},
+		"trailing after entries": {strings.TrimSpace(string(good)) + `[]`, 0, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, err := Parse([]byte(c.in))
+			if c.bad {
+				if !errors.Is(err, ErrBadFormat) {
+					t.Fatalf("Parse = %v, want ErrBadFormat", err)
+				}
+				return
+			}
+			if err != nil || len(f.Entries) != c.entries {
+				t.Fatalf("Parse = %v, %v", f, err)
+			}
+		})
+	}
+	if _, err := Parse([]byte(`{"magic":"keystore/v1","entries":[null]}`)); !strings.Contains(fmt.Sprint(err), "invalid entry id") {
+		t.Fatalf("null element: %v", err)
+	}
+	// A newer magic still wins over entries this binary cannot read.
+	if _, err := Parse([]byte(`{"magic":"keystore/v2","entries":[{"new":1}]}`)); !errors.Is(err, ErrFutureVersion) {
+		t.Fatalf("future magic with unknown entry fields: %v", err)
+	}
 }
