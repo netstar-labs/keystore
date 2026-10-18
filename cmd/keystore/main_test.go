@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -492,6 +493,8 @@ func TestReportExitCodesAndCleaning(t *testing.T) {
 		{nil, 0},
 		{flag.ErrHelp, 0},
 		{usageError("bad " + hostile), 2},
+		{errBadSig, 3},
+		{fmt.Errorf("verify: %w", errBadSig), 3},
 		{errors.New("open " + hostile + ": no such file"), 1},
 	} {
 		var b bytes.Buffer
@@ -499,5 +502,49 @@ func TestReportExitCodesAndCleaning(t *testing.T) {
 			t.Errorf("report(%v) = %d, want %d", tc.err, code, tc.code)
 		}
 		assertInert(t, "report", b.String())
+	}
+}
+
+// Automation that gates on `keystore verify` needs to tell "this signature is bad" from
+// "could not check" (a missing file, an unreadable key, usage): they shared exit 1.
+func TestVerifyExitCodeDistinguishesABadSignature(t *testing.T) {
+	r, pub, msg := signFixture(t)
+	sig := filepath.Join(t.TempDir(), "m.sig")
+	if _, _, err := cli(t, "sign", "-keystore", r, "-in", msg, "-o", sig); err != nil {
+		t.Fatal(err)
+	}
+	status := func(args ...string) int {
+		t.Helper()
+		_, _, err := cli(t, args...)
+		return report(io.Discard, err)
+	}
+	if got := status("verify", "-pub", pub, "-sig", sig, "-in", msg); got != 0 {
+		t.Fatalf("good signature: status %d, want 0", got)
+	}
+	b, _ := os.ReadFile(sig)
+	raw, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+	raw[0] ^= 1
+	bad := filepath.Join(t.TempDir(), "bad.sig")
+	os.WriteFile(bad, []byte(base64.StdEncoding.EncodeToString(raw)), 0o644)
+	if got := status("verify", "-pub", pub, "-sig", bad, "-in", msg); got != 3 {
+		t.Errorf("bad signature: status %d, want 3", got)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	os.WriteFile(other, []byte("a different message"), 0o644)
+	if got := status("verify", "-pub", pub, "-sig", sig, "-in", other); got != 3 {
+		t.Errorf("signature for another message: status %d, want 3", got)
+	}
+	for name, tc := range map[string]struct {
+		args []string
+		want int
+	}{
+		"missing sig file": {[]string{"verify", "-pub", pub, "-sig", filepath.Join(t.TempDir(), "none"), "-in", msg}, 1},
+		"missing pub file": {[]string{"verify", "-pub", filepath.Join(t.TempDir(), "none"), "-sig", sig, "-in", msg}, 1},
+		"junk signature":   {[]string{"verify", "-pub", pub, "-sig", pub, "-in", msg}, 1},
+		"usage":            {[]string{"verify", "-pub", pub}, 2},
+	} {
+		if got := status(tc.args...); got != tc.want {
+			t.Errorf("%s: status %d, want %d", name, got, tc.want)
+		}
 	}
 }
