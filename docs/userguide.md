@@ -29,8 +29,8 @@ line of error. The full flag list per verb is in the generated [reference](refer
 ## Getting started
 
 ```sh
-keystore keygen -keystore prod.ks -id 2026-prod      # creates prod.ks, prompts for a passphrase twice
-keystore export-pub -keystore prod.ks > prod.pub     # publish this
+keystore keygen -keystore prod.ks -id 2026-prod > prod.pub   # creates prod.ks, prompts for a passphrase
+                                                             # twice; the public key goes to prod.pub: publish it
 keystore list -keystore prod.ks
 # *  2026-prod  ed25519  2026-10-18T19:02:11Z  SHA256:…
 ```
@@ -99,8 +99,9 @@ passphrase may have been exposed, rotate the keys themselves (below) and see
 
 Consumers pin public keys, so rotate by overlap:
 
-1. `keystore add -id 2027-prod`
-2. `keystore export-pub -id 2027-prod` → consumers add it to their trusted set
+1. `keystore add -id 2027-prod > 2027-prod.pub` (`add` prints the new public key)
+2. consumers add `2027-prod.pub` to their trusted set (take the key `add` printed, not a later
+   `export-pub`, which reads the ring's stored copy and is checked only when unlocked)
 3. `keystore use -id 2027-prod` — new signatures use it
 4. `keystore rm -id 2026-prod` once nothing needs the old key
 
