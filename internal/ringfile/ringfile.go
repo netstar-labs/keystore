@@ -180,6 +180,11 @@ func decodeEntry(w wireEntry) (Entry, error) {
 	if err != nil {
 		return Entry{}, errors.New("bad created time")
 	}
+	// Normalise to UTC (how it is written back) and keep it writable as RFC 3339.
+	created = created.UTC()
+	if y := created.Year(); y < 0 || y > 9999 {
+		return Entry{}, errors.New("created time out of range")
+	}
 	switch w.Kind {
 	case KindEd25519:
 		pk, err := x509.ParsePKIXPublicKey(w.Pub)
@@ -199,8 +204,20 @@ func decodeEntry(w wireEntry) (Entry, error) {
 	return Entry{ID: w.ID, Kind: w.Kind, Pub: w.Pub, KDF: p, Nonce: w.Nonce, CT: w.CT, Created: created}, nil
 }
 
-// Marshal encodes f in the canonical on-disk form.
+// Marshal encodes f in the canonical on-disk form. It refuses to produce bytes that
+// Parse would reject, so no write path can leave an unreadable ring.
 func Marshal(f *File) ([]byte, error) {
+	b, err := marshal(f)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := Parse(b); err != nil {
+		return nil, fmt.Errorf("keystore: refusing to write an invalid ring: %w", err)
+	}
+	return b, nil
+}
+
+func marshal(f *File) ([]byte, error) {
 	w := wireFile{Magic: Magic, Current: f.Current, Entries: make([]wireEntry, 0, len(f.Entries))}
 	for _, e := range f.Entries {
 		w.Entries = append(w.Entries, wireEntry{

@@ -118,7 +118,10 @@ func TestParseRejectsFieldShapes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := &File{Entries: []Entry{entry(t, "k", KindEd25519)}}
 			m(&f.Entries[0])
-			b, _ := Marshal(f)
+			b, err := marshal(f) // raw encoder: Marshal itself refuses invalid rings
+			if err != nil || len(b) == 0 {
+				t.Fatalf("crafting the invalid ring: %v", err)
+			}
 			if _, err := Parse(b); !errors.Is(err, ErrBadFormat) {
 				t.Fatalf("Parse = %v, want ErrBadFormat", err)
 			}
@@ -127,7 +130,7 @@ func TestParseRejectsFieldShapes(t *testing.T) {
 	// A P-256 SPKI is a valid public key but not ed25519.
 	f := &File{Entries: []Entry{entry(t, "k", KindEd25519)}}
 	f.Entries[0].Pub = ecSPKI
-	b, _ := Marshal(f)
+	b, _ := marshal(f)
 	if _, err := Parse(b); !errors.Is(err, ErrBadFormat) {
 		t.Fatalf("non-ed25519 SPKI accepted: %v", err)
 	}
@@ -337,3 +340,41 @@ var ecSPKI = func() []byte {
 	}
 	return b
 }()
+
+// Regression (review F2): a created time whose UTC form is outside years 0000-9999
+// parsed, then marshalled to something RFC 3339 cannot read back, bricking the ring on
+// the next write.
+func TestCreatedOutOfRangeRejected(t *testing.T) {
+	good, _ := Marshal(sample(t))
+	for _, c := range []string{"0000-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"} {
+		in := strings.Replace(string(good), "2026-10-18T12:00:00Z", c, 1)
+		if _, err := Parse([]byte(in)); !errors.Is(err, ErrBadFormat) {
+			t.Errorf("created %s accepted: %v", c, err)
+		}
+	}
+}
+
+// Save never writes bytes that Parse would reject.
+func TestMarshalRefusesInvalid(t *testing.T) {
+	f := sample(t)
+	f.Entries[0].Nonce = f.Entries[0].Nonce[:3]
+	if _, err := Marshal(f); err == nil {
+		t.Fatal("Marshal produced an invalid ring")
+	}
+}
+
+func TestSaveRefusesUnreadableOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "r.ks")
+	Create(path, sample(t))
+	before, _ := os.ReadFile(path)
+	f := sample(t)
+	f.Entries[0].Created = time.Date(-1, 12, 31, 0, 0, 0, 0, time.UTC)
+	if err := Save(path, f); err == nil {
+		t.Fatal("Save wrote a ring that does not parse")
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) {
+		t.Fatal("refused Save modified the ring")
+	}
+	assertNoTemps(t, filepath.Dir(path))
+}
