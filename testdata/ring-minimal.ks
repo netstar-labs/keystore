@@ -1,0 +1,1 @@
+{"magic":"keystore/v1"}
