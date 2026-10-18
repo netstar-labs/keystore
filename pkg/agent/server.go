@@ -88,12 +88,17 @@ func (l *Listener) Close() error {
 // Ownership of the path is decided by an exclusive flock on path+".lock", held until the
 // listener is closed: a second agent — even one racing this one — gets ErrInUse and never
 // touches the socket. An existing socket that something still answers on is also
-// ErrInUse; a stale one is removed; anything else at path is refused.
+// ErrInUse; a stale one is removed; anything else at path is refused. The path must fit
+// the platform's sun_path (103 bytes on macOS, 107 on Linux), else Listen says so before
+// creating anything.
 //
 // The process umask is narrowed to 0177 for the duration of the bind, so the socket is
 // never reachable by others; files another goroutine of the embedding process creates in
 // that window get a narrower mode too.
 func Listen(path string) (*Listener, error) {
+	if max := len(syscall.RawSockaddrUnix{}.Path) - 1; len(path) > max { // sun_path holds a NUL too
+		return nil, fmt.Errorf("keystore agent: socket path is %d bytes; this platform allows at most %d", len(path), max)
+	}
 	if err := checkDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
