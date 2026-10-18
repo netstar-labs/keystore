@@ -200,7 +200,8 @@ func checkDir(dir string) error {
 // returns ErrExpired). A negative TTL or Idle is refused with ErrNegativeLifetime and ln
 // is closed. Running out of descriptors on accept is retried; any other accept error
 // stops the agent, closing every open connection. The socket is removed when the
-// listener closes.
+// listener closes. If the socket file is removed or replaced while serving, Serve stops
+// and returns an error; it leaves whatever now sits at the path alone.
 func (s *Server) Serve(ln *Listener) error {
 	if s.TTL < 0 || s.Idle < 0 { // timers arm only for values > 0: a negative one would mean "no limit"
 		ln.Close()
