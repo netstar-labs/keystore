@@ -116,7 +116,7 @@ type wireFile struct {
 type wireEntries []Entry
 
 func (es *wireEntries) UnmarshalJSON(b []byte) error {
-	*es = nil
+	*es = nil // a duplicated `entries` key replaces the earlier array; each occurrence is validated
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if t, err := dec.Token(); err != nil || (t != json.Delim('[') && t != nil) {

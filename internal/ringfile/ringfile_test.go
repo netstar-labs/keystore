@@ -392,6 +392,8 @@ func totalAlloc(fn func()) uint64 {
 
 // A ring at the size cap made of empty objects must fail at the first one without first
 // materialising every element: the file cap bounds the input, this bounds the memory.
+// The limit is about 3x what the streaming decode allocates (32 MiB observed); the old
+// decode allocated about 7 GiB.
 func TestParseDoesNotAmplify(t *testing.T) {
 	n := (MaxSize - 128) / 3 // "{}," is 3 bytes
 	body := []byte(`{"magic":"keystore/v1","current":"","entries":[` + strings.Repeat("{},", n) + `{}]}`)
@@ -487,7 +489,17 @@ func TestParseEntriesShapes(t *testing.T) {
 			if err != nil || len(f.Entries) != c.entries {
 				t.Fatalf("Parse = %v, %v", f, err)
 			}
+			if f.Entries == nil {
+				t.Fatal("Entries is nil; a ring with no entries yields a non-nil empty slice")
+			}
 		})
+	}
+	// Every occurrence of a duplicated `entries` key is validated: the old decode merged
+	// the later array into the earlier slice and never looked at an earlier invalid one.
+	dup := strings.TrimSpace(string(good))
+	dup = dup[:len(dup)-1] + `,"entries":[{}]}`
+	if _, err := Parse([]byte(dup)); !errors.Is(err, ErrBadFormat) {
+		t.Fatalf("duplicate entries key with an invalid occurrence: %v", err)
 	}
 	if _, err := Parse([]byte(`{"magic":"keystore/v1","entries":[null]}`)); !strings.Contains(fmt.Sprint(err), "invalid entry id") {
 		t.Fatalf("null element: %v", err)
