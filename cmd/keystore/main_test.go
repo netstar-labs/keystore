@@ -558,9 +558,9 @@ func TestNoRingPathWithoutHomeIsAUsageErrorNotACwdRing(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("KEYSTORE_FILE", "")
 	t.Setenv("KEYSTORE_PASSPHRASE", testPass)
-	for _, verb := range []string{"init", "keygen", "list", "export-pub", "sign"} {
+	for _, verb := range []string{"init", "keygen", "add", "import", "list", "use", "rm", "export-pub", "export-priv", "sign", "add-secret", "import-secret", "export-secret", "passwd"} {
 		args := []string{verb}
-		if verb == "keygen" {
+		if verb != "init" && verb != "list" && verb != "export-pub" && verb != "sign" && verb != "passwd" {
 			args = append(args, "-id", "a")
 		}
 		_, _, err := cli(t, args...)
@@ -578,5 +578,24 @@ func TestNoRingPathWithoutHomeIsAUsageErrorNotACwdRing(t *testing.T) {
 	t.Setenv("KEYSTORE_FILE", filepath.Join(cwd, "env.ks"))
 	if _, _, err := cli(t, "init"); err != nil {
 		t.Errorf("KEYSTORE_FILE without HOME: %v", err)
+	}
+	// sign -agent never reads the ring, so no home directory is no obstacle: it must get past
+	// the ring-path check (here it fails later, dialing a socket nobody listens on).
+	t.Setenv("KEYSTORE_FILE", "")
+	if _, _, err := cli(t, "sign", "-agent", filepath.Join(cwd, "none.sock")); err == nil || isUsage(err) {
+		t.Errorf("sign -agent without HOME: err = %v, want a non-usage failure from the dial", err)
+	}
+	// Verbs with no ring flag are unaffected.
+	for _, verb := range []string{"verify", "keychain-set"} {
+		if _, _, err := cli(t, verb); err != nil && strings.Contains(err.Error(), "no ring path") {
+			t.Errorf("%s: %v", verb, err)
+		}
+	}
+	// An explicit empty path is refused even with a home directory.
+	t.Setenv("HOME", cwd)
+	for _, a := range [][]string{{"list", "-keystore", ""}, {"list", "-keystore="}} {
+		if _, _, err := cli(t, a...); !isUsage(err) || !strings.Contains(err.Error(), "no ring path") {
+			t.Errorf("%v: err = %v, want the no-ring-path usage error", a, err)
+		}
 	}
 }
