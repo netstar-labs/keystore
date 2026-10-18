@@ -26,12 +26,12 @@ sign_now "made under 2026" old
 verify_any "$WORK/old.sig" "$WORK/old.msg"; ok "2026 signature accepted"
 
 step "2. mint the 2027 key beside it (signing does not change yet)"
-K add -id prod-2027 >/dev/null
+K add -id prod-2027 > "$WORK/prod-2027.pub"   # add prints the new public key: publish THAT
 [ "$(keystore list -keystore "$RING" | awk '$1=="*"{print $2}')" = prod-2026 ] || fail "current moved early"
 ok "current is still prod-2026"
 
 step "3. publish 2027's public key; verifiers now trust both"
-R export-pub -id prod-2027 > "$TRUST/prod-2027.pub"
+cp "$WORK/prod-2027.pub" "$TRUST/prod-2027.pub"   # not export-pub: it reads the ring's unauthenticated copy
 ls "$TRUST"
 
 step "4. switch signing to 2027 — no verifier notices"

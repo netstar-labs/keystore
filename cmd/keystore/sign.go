@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/netstar-labs/keystore/internal/passphrase"
+	"github.com/netstar-labs/keystore/internal/term"
 	"github.com/netstar-labs/keystore/pkg/agent"
 	"github.com/netstar-labs/keystore/pkg/keystore"
 )
@@ -64,7 +65,7 @@ func setupSign(fs *flag.FlagSet, s *stdio) func() error {
 		if err := writeFile(*out, b, 0o644, *force); err != nil {
 			return err
 		}
-		fmt.Fprintf(s.err, "wrote %s\n", *out)
+		fmt.Fprintf(s.err, "wrote %s\n", term.Clean(*out))
 		return nil
 	}
 }

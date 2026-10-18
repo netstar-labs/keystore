@@ -5,10 +5,12 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/pkg/agent"
@@ -18,6 +20,10 @@ import (
 const pass = "agent test passphrase"
 
 func TestMain(m *testing.M) {
+	if os.Getenv("KEYSTORE_AGENT_RUN_MAIN") == "1" { // the test re-executes itself as the command
+		main()
+		return
+	}
 	kdf.Default = kdf.Cost{Mem: kdf.MinMem, Time: 1, Par: 1}
 	os.Unsetenv("KEYSTORE_KEYCHAIN")
 	os.Exit(m.Run())
@@ -110,5 +116,73 @@ func TestNegativeLifetimeFlagsRefused(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "negative") {
 			t.Errorf("%s -1s: err = %v, want a refusal naming a negative value", flagName, err)
 		}
+	}
+}
+
+// main prints errors and flag problems to the terminal: whatever an operator's script
+// passed (a flag name, a ring path) must not be able to act on it or forge a line.
+func TestMainOutputIsInert(t *testing.T) {
+	const forged = "keystore: verified: SHA256:FORGED"
+	for name, args := range map[string][]string{
+		"unknown flag":   {"-a\n" + forged},
+		"ring path":      {"-keystore", "/nonexistent/x\x1b[31m\r" + forged, "-sock", "/tmp/x.sock"},
+		"unknown flag 2": {"-\x1b]0;t\x07\r" + forged},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], args...)
+			cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1", "KEYSTORE_PASSPHRASE=")
+			out, _ := cmd.CombinedOutput()
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.HasPrefix(line, "keystore: verified") {
+					t.Errorf("forged line in output: %q", out)
+				}
+			}
+			for _, r := range string(out) {
+				if r != '\n' && r != '\t' && !unicode.IsPrint(r) {
+					t.Fatalf("terminal-active rune %U in output %q", r, out)
+				}
+			}
+			if !strings.Contains(string(out), "keystore-agent:") {
+				t.Errorf("no error line printed: %q", out)
+			}
+		})
+	}
+}
+
+// The agent's own 'serving … on <socket>' log line echoes the -sock path; it must be inert
+// too, and the usage text (now printed by our Usage func, not the flag package) must still
+// follow a mistyped flag.
+func TestServingLineAndUsageAreInertAndPresent(t *testing.T) {
+	ring, sock, _ := fixture(t)
+	hostileSock := filepath.Join(filepath.Dir(sock), "s\x1b]0;t\x07\rkeystore: verified: FORGED.sock")
+	pf := filepath.Join(t.TempDir(), "pf")
+	if err := os.WriteFile(pf, []byte(pass), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-keystore", ring, "-sock", hostileSock, "-passfile", pf, "-ttl", "1s", "-idle", "0")
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("agent: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "serving prod") {
+		t.Fatalf("no serving line: %q", out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "keystore: verified: FORGED") && !strings.Contains(line, "serving") {
+			t.Errorf("forged line %q", line)
+		}
+	}
+	for _, r := range string(out) {
+		if r != '\n' && r != '\t' && !unicode.IsPrint(r) {
+			t.Fatalf("terminal-active rune %U in %q", r, out)
+		}
+	}
+
+	cmd = exec.Command(os.Args[0], "-nosuchflag")
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	out, _ = cmd.CombinedOutput()
+	if !strings.Contains(string(out), "Usage of keystore-agent:") || !strings.Contains(string(out), "-keystore") {
+		t.Errorf("usage text missing after a mistyped flag: %q", out)
 	}
 }

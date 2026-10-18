@@ -7,9 +7,11 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -486,5 +488,31 @@ func TestAcceptFatalErrorStopsEverything(t *testing.T) {
 	held.SetReadDeadline(time.Now().Add(2 * time.Second))
 	if _, err := held.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Errorf("open connection was not closed by the stopping agent: %v", err)
+	}
+}
+
+// Listen narrows the process umask around bind so the socket is never reachable by
+// others. Unserialised, concurrent calls interleaved set and restore, so a later
+// "restore" wrote back another goroutine's temporary 0177 and the process kept it.
+func TestConcurrentListenRestoresUmask(t *testing.T) {
+	old := syscall.Umask(0o022)
+	t.Cleanup(func() { syscall.Umask(old) })
+	dir := sockDir(t)
+	for round := 0; round < 50; round++ {
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				ln, err := Listen(filepath.Join(dir, fmt.Sprintf("s%d.sock", i)))
+				if err == nil {
+					ln.Close()
+				}
+			}(i)
+		}
+		wg.Wait()
+		if got := syscall.Umask(0o022); got != 0o022 {
+			t.Fatalf("round %d: umask left at %#o, want 022", round, got)
+		}
 	}
 }

@@ -120,7 +120,7 @@ func readLimited(path string, limit int64) ([]byte, error) {
 func setupExportSecret(fs *flag.FlagSet, s *stdio) func() error {
 	ring, pf, id := ringFlag(fs), passfileFlag(fs), idFlag(fs, true)
 	out := fs.String("o", "", "write to this new file (0600); default stdout")
-	force := fs.Bool("force", false, "replace an existing -o file, or allow writing to a terminal")
+	force := fs.Bool("force", false, "replace an existing -o file, or allow writing to a terminal or a file others can read")
 	return func() error {
 		if err := need("id", *id); err != nil {
 			return err
@@ -176,7 +176,7 @@ func setupPasswd(fs *flag.FlagSet, s *stdio) func() error {
 		}
 		fmt.Fprintf(s.err, "passphrase changed; %d entries re-encrypted\n", len(k.List()))
 		if os.Getenv(passphrase.KeychainVar) != "" {
-			fmt.Fprintf(s.err, "note: update the keychain item too: keystore keychain-set -service %s\n", os.Getenv(passphrase.KeychainVar))
+			fmt.Fprintf(s.err, "note: update the keychain item too: keystore keychain-set -service %s\n", term.Clean(os.Getenv(passphrase.KeychainVar)))
 		}
 		return nil
 	}
@@ -188,7 +188,7 @@ func setupKeychainSet(fs *flag.FlagSet, s *stdio) func() error {
 		if err := keychain.Set(*svc); err != nil {
 			return err
 		}
-		fmt.Fprintf(s.err, "stored; export %s=%s to unlock without a prompt\n", passphrase.KeychainVar, *svc)
+		fmt.Fprintf(s.err, "stored; export %s=%s to unlock without a prompt\n", passphrase.KeychainVar, term.Clean(*svc))
 		return nil
 	}
 }

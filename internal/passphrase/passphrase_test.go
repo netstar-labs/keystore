@@ -198,8 +198,8 @@ func TestReplacementSources(t *testing.T) {
 	if _, err := Replacement(""); !errors.Is(err, ErrTooShort) {
 		t.Fatalf("short replacement: %v", err)
 	}
-	if pw, err := Replacement(passfile(t, "replacement from a file\n", 0o600)); err == nil {
-		t.Fatalf("env should win over the new passfile; got %q", pw)
+	if pw, err := Replacement(passfile(t, "replacement from a file\n", 0o600)); err == nil || !strings.Contains(err.Error(), "-new-passfile") {
+		t.Fatalf("env set with -new-passfile should be refused, naming the flag; got %q, %v", pw, err)
 	}
 }
 
@@ -225,44 +225,32 @@ func TestPassfileFIFODoesNotBlock(t *testing.T) {
 func captureNotices(t *testing.T) *[]string {
 	t.Helper()
 	var got []string
-	old := Notice
-	t.Cleanup(func() { Notice = old })
-	Notice = func(s string) { got = append(got, s) }
+	old := notice
+	t.Cleanup(func() { notice = old })
+	notice = func(s string) { got = append(got, s) }
 	return &got
 }
 
-// An explicit -passfile loses to the environment variable (the documented order), which
-// let a stale KEYSTORE_PASSPHRASE silently establish a ring under a passphrase the
-// operator did not mean (decision 16: an explicit source must not degrade invisibly).
-// The order is unchanged; the shadowing is now announced.
-func TestShadowedPassfileIsAnnounced(t *testing.T) {
+// An explicit -passfile loses to a higher-priority source (the documented order). That let
+// a stale KEYSTORE_PASSPHRASE silently decide the passphrase a ring was ESTABLISHED under
+// (decision 16: an explicit source must not degrade invisibly). The order is unchanged;
+// when unlocking the shadowing is announced, and when establishing it is refused.
+func TestShadowedPassfileIsAnnouncedWhenUnlocking(t *testing.T) {
 	pf := passfile(t, "the passfile passphrase", 0o600)
 	t.Run("env shadows passfile", func(t *testing.T) {
 		notes := captureNotices(t)
 		t.Setenv(EnvVar, "the environment passphrase")
-		pw, err := New(pf)
+		pw, err := Unlock(pf)
 		if err != nil || string(pw) != "the environment passphrase" {
 			t.Fatalf("precedence changed: %q, %v", pw, err)
 		}
-		if len(*notes) != 1 || !strings.Contains((*notes)[0], EnvVar) || !strings.Contains((*notes)[0], "-passfile") {
+		if len(*notes) != 1 || !strings.Contains((*notes)[0], EnvVar) || !strings.Contains((*notes)[0], "-passfile is ignored") {
 			t.Errorf("notices = %q, want one naming %s and -passfile", *notes, EnvVar)
-		}
-	})
-	t.Run("replacement env shadows new-passfile", func(t *testing.T) {
-		notes := captureNotices(t)
-		t.Setenv(NewEnvVar, "the new environment passphrase")
-		if _, err := Replacement(pf); err != nil {
-			t.Fatal(err)
-		}
-		if len(*notes) != 1 || !strings.Contains((*notes)[0], NewEnvVar) {
-			t.Errorf("notices = %q, want one naming %s", *notes, NewEnvVar)
 		}
 	})
 	t.Run("keychain shadows passfile", func(t *testing.T) {
 		notes := captureNotices(t)
-		oldKC := Keychain
-		t.Cleanup(func() { Keychain = oldKC })
-		Keychain = func(string) ([]byte, error) { return []byte("the keychain passphrase"), nil }
+		stubKeychain(t, "the keychain passphrase", nil)
 		t.Setenv(KeychainVar, "svc")
 		if _, err := Unlock(pf); err != nil {
 			t.Fatal(err)
@@ -273,15 +261,104 @@ func TestShadowedPassfileIsAnnounced(t *testing.T) {
 	})
 	t.Run("nothing shadowed, nothing said", func(t *testing.T) {
 		notes := captureNotices(t)
-		if _, err := New(pf); err != nil { // passfile alone
+		if _, err := Unlock(pf); err != nil { // passfile alone
 			t.Fatal(err)
 		}
 		t.Setenv(EnvVar, "the environment passphrase")
-		if _, err := New(""); err != nil { // env alone
+		if _, err := Unlock(""); err != nil { // env alone
 			t.Fatal(err)
+		}
+		t.Setenv(EnvVar, "") // an EMPTY variable is not a source: the passfile is used, silently
+		pw, err := Unlock(pf)
+		if err != nil || string(pw) != "the passfile passphrase" {
+			t.Fatalf("empty env should fall through to the passfile: %q, %v", pw, err)
 		}
 		if len(*notes) != 0 {
 			t.Errorf("unexpected notices: %q", *notes)
 		}
 	})
+}
+
+func TestShadowedPassfileIsRefusedWhenEstablishing(t *testing.T) {
+	pf := passfile(t, "the passfile passphrase", 0o600)
+	cases := []struct {
+		name string
+		set  func(t *testing.T)
+		call func() ([]byte, error)
+		want []string
+	}{
+		{"new: env", func(t *testing.T) { t.Setenv(EnvVar, "the environment passphrase") },
+			func() ([]byte, error) { return New(pf) }, []string{EnvVar, "-passfile"}},
+		{"new: keychain", func(t *testing.T) { stubKeychain(t, "the keychain passphrase", nil); t.Setenv(KeychainVar, "svc") },
+			func() ([]byte, error) { return New(pf) }, []string{KeychainVar, "-passfile"}},
+		{"replacement: new env names -new-passfile", func(t *testing.T) { t.Setenv(NewEnvVar, "the new environment passphrase") },
+			func() ([]byte, error) { return Replacement(pf) }, []string{NewEnvVar, "-new-passfile"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			notes := captureNotices(t)
+			c.set(t)
+			pw, err := c.call()
+			if err == nil || pw != nil {
+				t.Fatalf("established under a shadowed passfile: %q, %v", pw, err)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error %q does not name %q", err, w)
+				}
+			}
+			if len(*notes) != 0 {
+				t.Errorf("refusal also printed a notice: %q", *notes)
+			}
+		})
+	}
+	t.Run("passfile alone or env alone still establish", func(t *testing.T) {
+		if pw, err := New(pf); err != nil || string(pw) != "the passfile passphrase" {
+			t.Fatalf("New(passfile) = %q, %v", pw, err)
+		}
+		t.Setenv(EnvVar, "the environment passphrase")
+		if pw, err := New(""); err != nil || string(pw) != "the environment passphrase" {
+			t.Fatalf("New(env) = %q, %v", pw, err)
+		}
+	})
+}
+
+// The length check counts runes; converting the passphrase to a string and a []rune for
+// that made copies that the surrounding clear() calls can never wipe. It must count in
+// place, and count exactly as before (an invalid byte is one rune).
+func TestNewLengthCheckMakesNoCopyOfThePassphrase(t *testing.T) {
+	long := strings.Repeat("x", 100)
+	t.Setenv(EnvVar, long)
+	allocs := testing.AllocsPerRun(50, func() {
+		pw, err := New("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		clear(pw)
+	})
+	if allocs > 1 { // the one copy is resolve's own []byte(env value), which New returns
+		t.Errorf("New allocated %v times for a 100-byte passphrase, want at most 1 (the returned slice)", allocs)
+	}
+}
+
+func TestNewCountsRunesExactly(t *testing.T) {
+	for _, tc := range []struct {
+		pw string
+		ok bool
+	}{
+		{strings.Repeat("é", 11), false}, // 22 bytes, 11 runes
+		{strings.Repeat("é", 12), true},
+		{strings.Repeat("a", 11), false},
+		{strings.Repeat("a", 12), true},
+		{strings.Repeat("\xff", 11), false}, // an invalid byte counts as one rune
+		{strings.Repeat("\xff", 12), true},
+		{"日本語のパスフレーズです。。", true}, // 14 runes, 42 bytes
+	} {
+		t.Setenv(EnvVar, tc.pw)
+		pw, err := New("")
+		if (err == nil) != tc.ok {
+			t.Errorf("New(%q) err = %v, want ok=%v", tc.pw, err, tc.ok)
+		}
+		clear(pw)
+	}
 }

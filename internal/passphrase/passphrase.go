@@ -12,6 +12,9 @@
 //
 // A replacement passphrase (for passwd) comes from KEYSTORE_NEW_PASSPHRASE, a new
 // passfile, or the prompt — never the keychain or the current-passphrase variable.
+//
+// An explicit passfile that a higher source outranks is not ignored invisibly: unlocking
+// prints a note, and establishing a passphrase is refused (decision 40).
 package passphrase
 
 import (
@@ -21,6 +24,7 @@ import (
 	"io"
 	"os"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/netstar-labs/keystore/internal/keychain"
 	"github.com/netstar-labs/keystore/internal/term"
@@ -53,24 +57,25 @@ var Prompt = term.ReadPassword
 // Keychain reads a passphrase from the keychain; tests replace it.
 var Keychain = keychain.Get
 
-// Notice reports that an explicitly given source was passed over; tests replace it.
-var Notice = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+// notice reports that an explicitly given source was passed over; tests replace it.
+var notice = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 
 type sources struct {
 	env      string
 	keychain bool
 	prompt   string
+	flag     string // the passfile flag that these sources outrank, for messages
 }
 
 var (
-	current     = sources{env: EnvVar, keychain: true, prompt: "keystore passphrase: "}
-	established = sources{env: EnvVar, keychain: true, prompt: "new keystore passphrase: "}
-	replacement = sources{env: NewEnvVar, prompt: "new keystore passphrase: "}
+	current     = sources{env: EnvVar, keychain: true, prompt: "keystore passphrase: ", flag: "-passfile"}
+	established = sources{env: EnvVar, keychain: true, prompt: "new keystore passphrase: ", flag: "-passfile"}
+	replacement = sources{env: NewEnvVar, prompt: "new keystore passphrase: ", flag: "-new-passfile"}
 )
 
 // Unlock returns the passphrase for an existing ring. No length rule applies.
 func Unlock(passfile string) ([]byte, error) {
-	pw, _, err := resolve(current, passfile)
+	pw, _, err := resolve(current, passfile, false)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +94,7 @@ func New(passfile string) ([]byte, error) { return establish(established, passfi
 func Replacement(newPassfile string) ([]byte, error) { return establish(replacement, newPassfile) }
 
 func establish(src sources, passfile string) ([]byte, error) {
-	pw, prompted, err := resolve(src, passfile)
+	pw, prompted, err := resolve(src, passfile, true)
 	if err != nil {
 		return nil, err
 	}
@@ -109,20 +114,42 @@ func establish(src sources, passfile string) ([]byte, error) {
 	if len(pw) == 0 {
 		return nil, ErrEmpty
 	}
-	if len([]rune(string(pw))) < MinLen {
+	// Counted in place: string(pw) would copy the passphrase where clear() cannot reach.
+	if utf8.RuneCount(pw) < MinLen {
 		clear(pw)
 		return nil, ErrTooShort
 	}
 	return pw, nil
 }
 
-func resolve(src sources, passfile string) (pw []byte, prompted bool, err error) {
+// shadowed handles an explicit passfile being passed over because a source that outranks
+// it is set. The order is documented, but a stale variable silently outranking a flag the
+// operator typed hides a misconfiguration (decision 16). When unlocking, that is announced
+// and the wrong passphrase will surface at once as a failed unlock. When establishing a
+// passphrase it is refused: the ring would be created under a value the operator did not
+// mean, silently and persistently.
+func shadowed(src sources, passfile, by string, establishing bool) error {
+	if passfile == "" {
+		return nil
+	}
+	if establishing {
+		return fmt.Errorf("keystore: %s is set and so is %s; unset one so the new passphrase is the one you mean", by, src.flag)
+	}
+	notice(fmt.Sprintf("keystore: note: %s is set, so %s is ignored", by, src.flag))
+	return nil
+}
+
+func resolve(src sources, passfile string, establishing bool) (pw []byte, prompted bool, err error) {
 	if v, ok := os.LookupEnv(src.env); ok && v != "" {
-		shadowed(passfile, src.env)
+		if err := shadowed(src, passfile, src.env, establishing); err != nil {
+			return nil, false, err
+		}
 		return []byte(v), false, nil
 	}
 	if svc := os.Getenv(KeychainVar); src.keychain && svc != "" {
-		shadowed(passfile, KeychainVar)
+		if err := shadowed(src, passfile, KeychainVar, establishing); err != nil {
+			return nil, false, err
+		}
 		pw, err := Keychain(svc)
 		if err != nil {
 			return nil, false, fmt.Errorf("%s=%s: %w", KeychainVar, svc, err)
@@ -140,15 +167,6 @@ func resolve(src sources, passfile string) (pw []byte, prompted bool, err error)
 // readPassfile reads a passfile after checking, on the open descriptor, that it is a
 // regular file owned by the caller with no group or other permissions. One trailing
 // newline (LF or CRLF) is removed.
-// shadowed announces that an explicit -passfile is being ignored because a source that
-// outranks it is set. The order is documented, but a stale variable in the environment
-// silently outranking a flag the operator typed hides a misconfiguration (decision 16).
-func shadowed(passfile, by string) {
-	if passfile != "" {
-		Notice(fmt.Sprintf("keystore: note: %s is set, so -passfile is ignored", by))
-	}
-}
-
 func readPassfile(path string) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) // a FIFO must not block the open
 	if err != nil {
