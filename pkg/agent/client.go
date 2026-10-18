@@ -13,7 +13,9 @@ import (
 	"github.com/netstar-labs/keystore/internal/peercred"
 )
 
-// DefaultTimeout bounds each dial and each request round trip.
+// DefaultTimeout is the deadline given to each dial and, separately, to the exchange that
+// follows it (one deadline over the request write and reply read); a call can therefore
+// take up to twice this long.
 const DefaultTimeout = 5 * time.Second
 
 // Client is a crypto.Signer backed by an agent socket. It holds no private key.
