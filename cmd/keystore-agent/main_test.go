@@ -5,16 +5,16 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/pkg/agent"
 	"github.com/netstar-labs/keystore/pkg/keystore"
-	"os/exec"
-	"unicode"
 )
 
 const pass = "agent test passphrase"
@@ -146,5 +146,43 @@ func TestMainOutputIsInert(t *testing.T) {
 				t.Errorf("no error line printed: %q", out)
 			}
 		})
+	}
+}
+
+// The agent's own 'serving … on <socket>' log line echoes the -sock path; it must be inert
+// too, and the usage text (now printed by our Usage func, not the flag package) must still
+// follow a mistyped flag.
+func TestServingLineAndUsageAreInertAndPresent(t *testing.T) {
+	ring, sock, _ := fixture(t)
+	hostileSock := filepath.Join(filepath.Dir(sock), "s\x1b]0;t\x07\rkeystore: verified: FORGED.sock")
+	pf := filepath.Join(t.TempDir(), "pf")
+	if err := os.WriteFile(pf, []byte(pass), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-keystore", ring, "-sock", hostileSock, "-passfile", pf, "-ttl", "1s", "-idle", "0")
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("agent: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "serving prod") {
+		t.Fatalf("no serving line: %q", out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "keystore: verified: FORGED") && !strings.Contains(line, "serving") {
+			t.Errorf("forged line %q", line)
+		}
+	}
+	for _, r := range string(out) {
+		if r != '\n' && r != '\t' && !unicode.IsPrint(r) {
+			t.Fatalf("terminal-active rune %U in %q", r, out)
+		}
+	}
+
+	cmd = exec.Command(os.Args[0], "-nosuchflag")
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	out, _ = cmd.CombinedOutput()
+	if !strings.Contains(string(out), "Usage of keystore-agent:") || !strings.Contains(string(out), "-keystore") {
+		t.Errorf("usage text missing after a mistyped flag: %q", out)
 	}
 }
