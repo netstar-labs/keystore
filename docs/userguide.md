@@ -51,11 +51,13 @@ KEYSTORE_KEYCHAIN=prod` and the keychain is consulted after `KEYSTORE_PASSPHRASE
 `-passfile`. If `KEYSTORE_KEYCHAIN` is set and the lookup fails, the command fails rather than
 falling through to a prompt.
 
-A **new** passphrase — the one given when the first key goes into an empty ring — must be at least 12 characters, from any source. Unlocking is never
-length-checked. If `keygen` is refused for a short passphrase it has already created the ring
-file, empty (the state `init` leaves); run it again. Upper bounds: the terminal prompt takes up
-to 1024 bytes and a passfile up to 4096 bytes; `KEYSTORE_PASSPHRASE` has no cap. One ring has one passphrase: adding an entry with a different passphrase is
-refused (`passphrase does not match this ring`).
+A **new** passphrase — the one given when the first key goes into an empty ring — must be at
+least 12 characters, from any source. Unlocking is never length-checked. If `keygen` is
+refused for a short passphrase it has already created the ring file, empty (the state `init`
+leaves); run it again. Upper bounds: the terminal prompt takes up to 1024 bytes and a
+passfile up to 4096 bytes; `KEYSTORE_PASSPHRASE` has no cap. One ring has one passphrase:
+adding an entry with a different passphrase is refused (`passphrase does not match this
+ring`).
 
 ## Secrets
 
@@ -69,10 +71,11 @@ keystore export-secret -keystore prod.ks -id api -o api.b64                # bas
 ```
 
 On a terminal, `import-secret` prompts for the value without echo; the terminal's line
-buffer limits what you can type (on macOS about 1000 base64 characters — longer input is
-silently ignored and the prompt keeps waiting), so for larger values use `-in FILE` or stdin.
-A secret is never accepted as a command-line argument. `export-secret` follows the same output rules as
-`export-priv` (below).
+buffer limits what you can type (on macOS about 1000 base64 characters; longer input is
+ignored and the terminal beeps while the prompt keeps waiting, and the prompt itself reads
+at most 1024 bytes on any platform), so for larger values use `-in FILE` or stdin. A secret
+is never accepted as a command-line argument. `export-secret` follows the same output rules
+as `export-priv` (below).
 
 ## Changing the passphrase
 
