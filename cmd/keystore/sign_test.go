@@ -118,3 +118,19 @@ func TestSignVerifyLimits(t *testing.T) {
 		t.Fatalf("malformed signature file: %v", err)
 	}
 }
+
+// verify read its -pub and -sig files whole, unlike every other input (a planted 1 GiB
+// file cost ~1-2 GB of memory). A PEM public key or a signature is a few hundred bytes.
+func TestVerifyInputFilesAreCapped(t *testing.T) {
+	_, pub, _ := signFixture(t)
+	big := filepath.Join(t.TempDir(), "big")
+	if err := os.WriteFile(big, make([]byte, maxInputFile+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cliIn(t, "m", "verify", "-pub", big, "-sig", big); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("oversize -pub: %v", err)
+	}
+	if _, _, err := cliIn(t, "m", "verify", "-pub", pub, "-sig", big); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("oversize -sig: %v", err)
+	}
+}
