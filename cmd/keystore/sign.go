@@ -35,6 +35,7 @@ func setupSign(fs *flag.FlagSet, s *stdio) func() error {
 	out := fs.String("o", "", "write the signature to this new file; default stdout")
 	raw := fs.Bool("raw", false, "write the 64 raw signature bytes instead of base64")
 	force := fs.Bool("force", false, "replace an existing -o file")
+	expect := fs.String("expect-fp", "", "refuse to sign unless the signing key's fingerprint is this (SHA256:..., as list shows)")
 	return func() error {
 		if *sock != "" && *id != "" {
 			return usageError("-id selects a ring key; the agent serves one key (drop -id or -agent)")
@@ -47,8 +48,20 @@ func setupSign(fs *flag.FlagSet, s *stdio) func() error {
 		if err != nil {
 			return err
 		}
+		// Say which key signs: the ring's current marker is unauthenticated (SECURITY.md), so a
+		// bare sign uses whichever key the file names; -expect-fp pins it.
+		pub, _ := signer.Public().(ed25519.PublicKey)
+		fp := keystore.Fingerprint(pub)
+		priv, isPriv := signer.(ed25519.PrivateKey)
+		if *expect != "" && *expect != fp {
+			if isPriv {
+				clear(priv)
+			}
+			return fmt.Errorf("keystore: the signing key is %s, expected %s", fp, *expect)
+		}
+		fmt.Fprintf(s.err, "signing with %s\n", fp)
 		sig, err := signer.Sign(nil, msg, crypto.Hash(0))
-		if priv, ok := signer.(ed25519.PrivateKey); ok {
+		if isPriv {
 			clear(priv)
 		}
 		if err != nil {

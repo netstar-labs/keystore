@@ -99,6 +99,9 @@ func TestSignViaAgent(t *testing.T) {
 	if _, _, err := cli(t, "verify", "-pub", pub, "-sig", sig, "-in", msg); err != nil {
 		t.Fatalf("agent signature does not verify: %v", err)
 	}
+	if _, errOut, _ := cli(t, "sign", "-agent", sock, "-in", msg); !strings.Contains(errOut, "signing with SHA256:") {
+		t.Errorf("sign -agent does not name the agent's key: %q", errOut)
+	}
 	if _, _, err := cli(t, "sign", "-agent", sock, "-id", "prod", "-in", msg); !isUsage(err) {
 		t.Fatalf("-agent with -id: %v", err)
 	}
@@ -156,5 +159,48 @@ func TestVerifyInputFilesAreCapped(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "too large") {
 			t.Errorf("oversize %s: %v", name, err)
 		}
+	}
+}
+
+// The ring's `current` marker is unauthenticated, so a bare `sign` signs with whichever key
+// the file names; the only visible trace used to be a later `list`. sign now says which key
+// it used, and -expect-fp pins it (the non-format mitigation recorded in decision 39).
+func TestSignReportsTheKeyAndHonoursExpectFP(t *testing.T) {
+	r, pubFile, msg := signFixture(t) // key "prod" is current
+	pemA, _ := os.ReadFile(pubFile)
+	pubA, err := keystore.ParsePublicKeyPEM(pemA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpA := keystore.Fingerprint(pubA)
+	pemB, _, err := cli(t, "add", "-keystore", r, "-id", "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubB, _ := keystore.ParsePublicKeyPEM([]byte(pemB))
+	fpB := keystore.Fingerprint(pubB)
+
+	// The key used is named on stderr, with and without a pin.
+	_, errOut, err := cli(t, "sign", "-keystore", r, "-in", msg)
+	if err != nil || !strings.Contains(errOut, "signing with "+fpA) {
+		t.Fatalf("sign: err %v, stderr %q, want it to name %s", err, errOut, fpA)
+	}
+	if _, errOut, err = cli(t, "sign", "-keystore", r, "-in", msg, "-expect-fp", fpA); err != nil || !strings.Contains(errOut, fpA) {
+		t.Fatalf("sign -expect-fp (matching): %v, %q", err, errOut)
+	}
+	// `current` moves (an edit by anything that can write the ring looks exactly like this).
+	if _, _, err := cli(t, "use", "-keystore", r, "-id", "other"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := cli(t, "sign", "-keystore", r, "-in", msg, "-expect-fp", fpA)
+	if err == nil || out != "" {
+		t.Fatalf("sign with a moved current and -expect-fp %s: out %q err %v, want a refusal and no signature", fpA, out, err)
+	}
+	if !strings.Contains(err.Error(), fpA) || !strings.Contains(err.Error(), fpB) {
+		t.Errorf("error %q should name both the key it would have used (%s) and the expected one (%s)", err, fpB, fpA)
+	}
+	// -id is the other pin, and still works.
+	if _, errOut, err = cli(t, "sign", "-keystore", r, "-in", msg, "-id", "prod"); err != nil || !strings.Contains(errOut, fpA) {
+		t.Errorf("sign -id prod: %v, %q", err, errOut)
 	}
 }

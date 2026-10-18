@@ -111,7 +111,9 @@ the ring or its passphrase, see [SECURITY.md](../SECURITY.md).
 
 In scripts, always pass `-id` rather than relying on the ring's current key: the current
 marker is stored in the ring file unauthenticated, so anything that can write the ring can
-change which key a bare `sign` uses (and `sign` still exits 0). Take each public key from the
+change which key a bare `sign` uses (and `sign` still exits 0). `sign` prints `signing with
+SHA256:…` on stderr, naming the key it used; pass `-expect-fp SHA256:…` (the fingerprint `list`
+shows) to refuse to sign with any other key. Take each public key from the
 output of `keygen` or `add` when the key is created: both print the public key PEM on stdout,
 whereas `export-pub` reads the copy stored in the ring, which is only checked when the entry
 is unlocked.
