@@ -93,7 +93,7 @@ keychain item afterwards if you use one.
 snapshot, or a temporary file left by a crashed write still holds the old entries and unlocks
 under the old passphrase. `passwd` also does not rotate the private keys, so after a
 passphrase may have been exposed, rotate the keys themselves (below) and see
-[SECURITY.md](../SECURITY.md).
+[SECURITY.md](../SECURITY.md#what-it-does-not-protect).
 
 ## Rotation
 
@@ -167,7 +167,7 @@ created new with mode 0600 and never follows a symlink. An existing file is refu
 
 | File | Mode | Notes |
 |---|---|---|
-| `prod.ks` | 0600 | the ring; safe to back up (encrypted), but never alongside its passphrase |
+| `prod.ks` | 0600 | the ring; safe to back up (encrypted), but never alongside its passphrase. Restoring an old copy brings back removed keys and the passphrase in force when it was taken |
 | `prod.ks.lock` | 0600 | lock file; empty; safe to delete when nothing is running |
 | passfile | 0600 | anyone holding both this and the ring can unlock it — keep it out of the ring's backups |
 | `agent.sock` | 0600 | the agent's socket; removed when the agent stops |
