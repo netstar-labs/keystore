@@ -1,14 +1,50 @@
 name: ci
 on: { pull_request: {}, push: { branches: [main] } }
+
+# Analyzer versions are pinned; bump them deliberately.
+env:
+  GOWORK: "off"
+  GOPRIVATE: "github.com/netstar-labs"
+  STATICCHECK: honnef.co/go/tools/cmd/staticcheck@v0.8.2
+  GOVULNCHECK: golang.org/x/vuln/cmd/govulncheck@v1.9.0
+  DEADCODE: golang.org/x/tools/cmd/deadcode@v0.52.0
+
 jobs:
+  # Required check. Linux: exercises SO_PEERCRED and the systemd-flavoured paths.
   ci:
     runs-on: ubuntu-latest
-    env: { GOWORK: "off", GOPRIVATE: "github.com/netstar-labs" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
       - run: go build ./... && go vet ./...
-      - run: go test -race ./...
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - run: go test -race -count=1 ./...
+      - run: go run "$STATICCHECK" ./...
       - run: test -z "$(gofmt -l .)"
+      - run: go mod tidy && git diff --exit-code go.mod go.sum
+      - run: go run "$GOVULNCHECK" ./...
+      # Library API (Keystore.Path) is legitimately unreached from the binaries.
+      - run: test -z "$(go run "$DEADCODE" ./... | grep -v 'Keystore.Path')"
+      - if: runner.os == 'Linux' && hashFiles('examples/agent-service/keystore-agent.service') != ''
+        run: systemd-analyze verify --user examples/agent-service/keystore-agent.service 2>&1 | grep -v 'Executable path' || true
+
+  # macOS: LOCAL_PEERCRED, the keychain lookup, and the launchd plist.
+  ci-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go build ./... && go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: plutil -lint examples/agent-service/local.keystore-agent.plist
+
+  # Fuzz budget: the two attacker-facing parsers, 60 s each.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go test -run '^$' -fuzz=FuzzParse -fuzztime=60s ./internal/ringfile
+      - run: go test -run '^$' -fuzz=FuzzReadFrame -fuzztime=60s ./pkg/agent

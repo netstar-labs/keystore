@@ -35,7 +35,17 @@ handed to the process that uses it.
 
 - [User guide](docs/userguide.md) — verbs, passphrase sources, rotation, backup
 - [Verb reference](docs/reference.md) — generated from the command table
-- [Security policy](SECURITY.md)
+- [Security policy](SECURITY.md) · [third-party notices](THIRD-PARTY-NOTICES)
+
+## Install
+
+```sh
+go install github.com/netstar-labs/keystore/cmd/keystore@latest
+go install github.com/netstar-labs/keystore/cmd/keystore-agent@latest
+```
+
+Requires Go 1.27 or newer; macOS and Linux. Release archives (`build/keystore --release`)
+are reproducible: `-trimpath`, `CGO_ENABLED=0`, the toolchain pinned in `go.mod`.
 
 ## Examples
 
@@ -59,4 +69,4 @@ handed to the process that uses it.
 | `cmd/keystore-agent/` | the signing agent daemon |
 | `examples/` | runnable integration scenarios |
 | `testdata/` | golden ring fixtures that pin the format |
-| `build/keystore` | build and packaging script |
+| `build/keystore` | build and packaging: `build/keystore` (linux/amd64 install package) or `build/keystore --release` (all platforms, SHA256SUMS, SPDX SBOM, notices) |
