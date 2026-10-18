@@ -12,12 +12,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/netstar-labs/keystore/internal/kdf"
 	"github.com/netstar-labs/keystore/internal/ringfile"
-	"strings"
 )
 
 var pass = []byte("correct horse battery")
@@ -529,7 +529,7 @@ func TestPEMErrorsSayWhatWasFound(t *testing.T) {
 		want []string
 	}{
 		"encrypted PKCS#8":  {block("ENCRYPTED PRIVATE KEY"), []string{"ENCRYPTED PRIVATE KEY", "decrypt"}},
-		"PKCS#1":            {block("RSA PRIVATE KEY"), []string{"RSA PRIVATE KEY", "PRIVATE KEY"}},
+		"PKCS#1":            {block("RSA PRIVATE KEY"), []string{`"RSA PRIVATE KEY"`, `expected "PRIVATE KEY"`}},
 		"SEC1":              {block("EC PRIVATE KEY"), []string{"EC PRIVATE KEY"}},
 		"public as private": {block("PUBLIC KEY"), []string{"PUBLIC KEY"}},
 		"no PEM at all":     {[]byte("not a pem file"), []string{"no PEM block"}},
@@ -548,5 +548,19 @@ func TestPEMErrorsSayWhatWasFound(t *testing.T) {
 				t.Errorf("%s: error %q does not mention %q", name, err, w)
 			}
 		}
+	}
+}
+
+// The same parser serves public-key parameters: a private key handed to one is named, and
+// no key bytes are echoed.
+func TestPublicKeyParameterNamesWhatItGot(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	privPEM, _ := MarshalPrivateKeyPEM(priv)
+	_, err := ParsePublicKeyPEM(privPEM)
+	if err == nil || !strings.Contains(err.Error(), `found a "PRIVATE KEY" PEM block, expected "PUBLIC KEY"`) {
+		t.Fatalf("private key given as a public key: %v", err)
+	}
+	if strings.Contains(err.Error(), string(privPEM[30:50])) {
+		t.Errorf("error echoes key material: %q", err)
 	}
 }
