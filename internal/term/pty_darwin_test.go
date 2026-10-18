@@ -2,6 +2,7 @@ package term
 
 import (
 	"os"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -14,16 +15,16 @@ func openPTY() (*os.File, string, error) {
 		return nil, "", err
 	}
 	fd := m.Fd()
-	if _, _, e := unix.Syscall(unix.SYS_IOCTL, fd, unix.TIOCPTYGRANT, 0); e != 0 {
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, unix.TIOCPTYGRANT, 0); e != 0 {
 		m.Close()
 		return nil, "", e
 	}
-	if _, _, e := unix.Syscall(unix.SYS_IOCTL, fd, unix.TIOCPTYUNLK, 0); e != 0 {
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, unix.TIOCPTYUNLK, 0); e != 0 {
 		m.Close()
 		return nil, "", e
 	}
 	var name [128]byte
-	if _, _, e := unix.Syscall(unix.SYS_IOCTL, fd, unix.TIOCPTYGNAME, uintptr(unsafe.Pointer(&name[0]))); e != 0 {
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, unix.TIOCPTYGNAME, uintptr(unsafe.Pointer(&name[0]))); e != 0 {
 		m.Close()
 		return nil, "", e
 	}
