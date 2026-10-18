@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,5 +98,17 @@ func TestWrongPassphraseAndMissingFlags(t *testing.T) {
 	}
 	if err := run([]string{"-keystore", ring}); err == nil {
 		t.Fatal("missing -sock accepted")
+	}
+}
+
+// A negative -ttl or -idle must be refused before the passphrase is read, not run as
+// "unlimited".
+func TestNegativeLifetimeFlagsRefused(t *testing.T) {
+	ring, sock, _ := fixture(t)
+	for _, flagName := range []string{"-ttl", "-idle"} {
+		err := run([]string{"-keystore", ring, "-sock", sock, flagName, "-1s"})
+		if err == nil || !strings.Contains(err.Error(), "negative") {
+			t.Errorf("%s -1s: err = %v, want a refusal naming a negative value", flagName, err)
+		}
 	}
 }

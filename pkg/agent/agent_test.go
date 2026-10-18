@@ -373,3 +373,44 @@ func TestConcurrentListenOneWinner(t *testing.T) {
 		os.Remove(sock)
 	}
 }
+
+// A negative TTL or Idle used to be accepted and silently meant "no limit" (the timers
+// are armed only for values > 0), so a wrapper computing -ttl from a deadline that had
+// already passed started an agent that never expired.
+func TestNegativeLifetimeRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ttl, idle time.Duration
+	}{
+		{"negative ttl", -time.Second, 0},
+		{"negative idle", 0, -time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, priv, _ := ed25519.GenerateKey(nil)
+			srv, err := NewServer(priv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv.TTL, srv.Idle = tc.ttl, tc.idle
+			sock := filepath.Join(sockDir(t), "agent.sock")
+			ln, err := Listen(sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- srv.Serve(ln) }()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("Serve returned nil for a negative lifetime")
+				}
+			case <-time.After(2 * time.Second):
+				srv.Close()
+				t.Fatal("Serve accepted a negative lifetime and runs unbounded")
+			}
+			if _, err := os.Lstat(sock); err == nil {
+				t.Error("socket left behind after a rejected configuration")
+			}
+		})
+	}
+}

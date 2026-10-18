@@ -56,6 +56,9 @@ func run(args []string) error {
 		fs.Usage()
 		return errors.New("-keystore and -sock are required")
 	}
+	if *ttl < 0 || *idle < 0 {
+		return agent.ErrNegativeLifetime // before the passphrase is read
+	}
 	sockPath, err := filepath.Abs(*sock)
 	if err != nil {
 		return err
