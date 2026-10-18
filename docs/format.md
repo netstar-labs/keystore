@@ -119,7 +119,8 @@ So a party that can write the ring but does not know the passphrase cannot read 
 forge a signature under a key the ring's owner did not choose, but can make a command use
 a different key of theirs, bring back a retired key, publish a different `pub` through
 `export-pub` (signing then fails), or make the ring unreadable. Writers of scripts should
-pass `-id` and verifiers should pin public keys. See [SECURITY.md](../SECURITY.md).
+pass `-id` (or `sign -expect-fp`) and verifiers should pin public keys. See
+[SECURITY.md](../SECURITY.md).
 
 ## Invariants
 
