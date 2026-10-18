@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -371,5 +372,78 @@ func TestConcurrentListenOneWinner(t *testing.T) {
 			}
 		}
 		os.Remove(sock)
+	}
+}
+
+// Out of file descriptors is a transient condition: Serve used to return on it without
+// closing the listener or the open connections, leaving either a dead agent holding a
+// stale socket, or (while any client kept a connection busy) a zombie that no longer
+// accepted but still held the key.
+func TestAcceptEMFILEIsRetried(t *testing.T) {
+	fail := make(chan struct{}, 1)
+	fail <- struct{}{}
+	r := start(t, func(s *Server) {
+		s.accept = func(ln *Listener) (*net.UnixConn, error) {
+			select {
+			case <-fail:
+				return nil, &net.OpError{Op: "accept", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+			default:
+				return ln.AcceptUnix()
+			}
+		}
+	})
+	c, err := Dial(r.sock)
+	if err != nil {
+		t.Fatalf("agent did not survive EMFILE on accept: %v", err)
+	}
+	if _, err := c.Sign(nil, []byte("m"), crypto.Hash(0)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-r.done:
+		t.Fatalf("Serve returned after a transient accept error: %v", err)
+	default:
+	}
+}
+
+func TestAcceptFatalErrorStopsEverything(t *testing.T) {
+	boom := errors.New("boom")
+	fail := make(chan struct{})
+	r := start(t, func(s *Server) {
+		s.accept = func(ln *Listener) (*net.UnixConn, error) {
+			select {
+			case <-fail:
+				return nil, boom
+			default:
+				return ln.AcceptUnix()
+			}
+		}
+	})
+	// A client that keeps a connection open must not be able to hold a dead accept loop.
+	held, err := net.Dial("unix", r.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if _, err := Dial(r.sock); err != nil { // makes sure the held connection is accepted first
+		t.Fatal(err)
+	}
+	close(fail)
+	// the accept loop is blocked in the real AcceptUnix: wake it with one more connection
+	net.Dial("unix", r.sock)
+	select {
+	case err := <-r.done:
+		if !errors.Is(err, boom) {
+			t.Fatalf("Serve = %v, want the accept error", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve did not return (or is waiting on an open connection)")
+	}
+	if _, err := os.Lstat(r.sock); err == nil {
+		t.Error("socket left behind after a fatal accept error")
+	}
+	held.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := held.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("open connection was not closed by the stopping agent: %v", err)
 	}
 }
