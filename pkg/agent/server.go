@@ -112,6 +112,10 @@ func Listen(path string) (*Listener, error) {
 	return &Listener{UnixListener: ln, lock: lock}, nil
 }
 
+// umaskMu serialises the umask change in listenLocked: the umask is process-wide, so two
+// overlapping set/restore pairs would restore each other's temporary value.
+var umaskMu sync.Mutex
+
 func listenLocked(path string) (*net.UnixListener, error) {
 	if st, err := os.Lstat(path); err == nil {
 		if st.Mode()&fs.ModeSocket == 0 {
@@ -125,9 +129,11 @@ func listenLocked(path string) (*net.UnixListener, error) {
 			return nil, err
 		}
 	}
+	umaskMu.Lock()
 	old := syscall.Umask(0o177) // no window in which the socket is reachable by others
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	syscall.Umask(old)
+	umaskMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
