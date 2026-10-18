@@ -84,12 +84,11 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	signer, err := k.Signer(*id, pw)
+	priv, err := k.ExportPrivate(*id, pw)
 	clear(pw)
 	if err != nil {
 		return err
 	}
-	priv := signer.(ed25519.PrivateKey)
 	defer clear(priv) // drop the key on every exit path
 
 	srv, err := agent.NewServer(priv)
