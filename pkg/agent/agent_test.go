@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -487,4 +488,29 @@ func TestAcceptFatalErrorStopsEverything(t *testing.T) {
 	if _, err := held.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Errorf("open connection was not closed by the stopping agent: %v", err)
 	}
+}
+
+// A socket path longer than sun_path used to fail inside bind with "invalid argument"
+// (naming no limit), after the path's lock file had already been created and left behind.
+func TestListenRejectsTooLongPathWithoutSideEffects(t *testing.T) {
+	dir := sockDir(t)
+	long := filepath.Join(dir, strings.Repeat("s", 200)+".sock")
+	_, err := Listen(long)
+	if err == nil {
+		t.Fatal("Listen accepted a path longer than sun_path")
+	}
+	if !strings.Contains(err.Error(), "at most") {
+		t.Errorf("error does not name the limit: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("rejected path left files behind: %v", left)
+	}
+	// The longest path that fits still works.
+	max := len(syscall.RawSockaddrUnix{}.Path) - 1
+	name := strings.Repeat("s", max-len(dir)-1)
+	ln, err := Listen(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatalf("a path of exactly %d bytes was refused: %v", max, err)
+	}
+	ln.Close()
 }

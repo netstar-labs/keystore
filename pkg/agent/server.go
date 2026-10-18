@@ -90,6 +90,9 @@ func (l *Listener) Close() error {
 // touches the socket. An existing socket that something still answers on is also
 // ErrInUse; a stale one is removed; anything else at path is refused.
 func Listen(path string) (*Listener, error) {
+	if max := len(syscall.RawSockaddrUnix{}.Path) - 1; len(path) > max { // sun_path holds a NUL too
+		return nil, fmt.Errorf("keystore agent: socket path is %d bytes; this platform allows at most %d", len(path), max)
+	}
 	if err := checkDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
