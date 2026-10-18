@@ -54,7 +54,9 @@ five working days.
   snapshots and the `.<ring>.<random>.tmp` file a hard kill (SIGKILL, power loss) can leave
   beside the ring (mode 0600, a full encrypted copy; nothing sweeps it) keep the old entries
   and the old passphrase. `passwd` does not rotate private keys. After a passphrase
-  compromise, treat every key as compromised and rotate the keys.
+  compromise, treat every key as compromised and rotate the keys. A running agent keeps
+  signing with the key it loaded after `rm` or `passwd` removed or re-encrypted it: stop or
+  restart agents when you retire a key.
 
 ## Known limits
 
@@ -83,6 +85,10 @@ five working days.
   this cannot bypass the encryption; `current`, entry order and `created` are not, and anyone
   who can write the ring can change them anyway. Another tool might read a different value
   than this one does.
+- **The agent's `-ttl` and `-idle` use the process's monotonic timers**, which (as far as
+  we know; not tested by suspending a machine) do not advance while the machine sleeps, so on
+  a laptop an unlocked key can outlive the nominal lifetime by the time spent asleep. Stop
+  the agent when you close the lid if that matters.
 - **Locking is advisory and held across the KDF.** A process that ignores `<ring>.lock` can
   race. `add` and `passwd` hold the lock while they derive keys (roughly 0.1–0.3 s per derivation at
   the default cost; `passwd` does two per entry), so with a large ring a concurrent writer
