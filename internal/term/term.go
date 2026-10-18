@@ -28,7 +28,8 @@ func IsTerminal(fd uintptr) bool {
 }
 
 // ReadPassword writes prompt to the terminal and reads one line with echo disabled.
-// The terminal state is restored on return and on SIGINT/SIGTERM during the prompt.
+// The terminal state is restored on return and when the prompt is interrupted by SIGINT,
+// SIGTERM, SIGQUIT or SIGHUP.
 func ReadPassword(prompt string) ([]byte, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -50,25 +51,34 @@ func ReadPassword(prompt string) ([]byte, error) {
 	restore := func() { _ = unix.IoctlSetTermios(fd, ioctlSetTermios, old) }
 	defer restore()
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sig)
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-sig:
-			restore()
-			fmt.Fprintln(tty)
-			os.Exit(130)
-		case <-done:
-		}
-	}()
+	defer restoreOnSignal(func() { restore(); fmt.Fprintln(tty) }, os.Exit)()
 
 	fmt.Fprint(tty, prompt)
 	line, err := readLine(tty)
 	fmt.Fprintln(tty)
 	return line, err
+}
+
+// interrupts are the signals that end a prompt: Ctrl-C, kill, Ctrl-\ (whose default
+// action also dumps a Go traceback) and the hangup a closing terminal sends. Any of them
+// bypasses the deferred restore, which would leave the user's terminal without echo.
+var interrupts = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP}
+
+// restoreOnSignal runs restore and then exit(130) if one of interrupts arrives. The
+// returned function stops watching; call it when the prompt is over.
+func restoreOnSignal(restore func(), exit func(int)) (stop func()) {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, interrupts...)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-sig:
+			restore()
+			exit(130)
+		case <-done:
+		}
+	}()
+	return func() { signal.Stop(sig); close(done) }
 }
 
 // readLine reads up to a newline, one byte at a time so nothing past the line is
