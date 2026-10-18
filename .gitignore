@@ -18,6 +18,9 @@ testdata/
 # except the committed format fixtures (golden vectors pin the ring format)
 !/testdata/
 
+# ring lock files (created beside a ring on every write)
+*.ks.lock
+
 # working plans stay local; the rest of docs/ is committed
 docs/plan/
 
