@@ -109,6 +109,38 @@ type wireFile struct {
 	Entries []wireEntry `json:"entries"`
 }
 
+// wireEntries decodes and validates the entries array one element at a time. Decoding
+// it into []wireEntry would allocate a struct per element before anything is checked,
+// so a 16 MiB ring of "{}" would cost gigabytes; this fails at the first bad entry and
+// allocates in proportion to the entries that are actually valid.
+type wireEntries []Entry
+
+func (es *wireEntries) UnmarshalJSON(b []byte) error {
+	*es = nil // a duplicated `entries` key replaces the earlier array; each occurrence is validated
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if t, err := dec.Token(); err != nil || (t != json.Delim('[') && t != nil) {
+		return ErrBadFormat // not an array; null is an empty ring, as for a slice
+	}
+	seen := make(map[string]bool)
+	for i := 0; dec.More(); i++ {
+		var we wireEntry
+		if err := dec.Decode(&we); err != nil {
+			return ErrBadFormat
+		}
+		e, err := decodeEntry(we)
+		if err != nil {
+			return fmt.Errorf("%w: entry %d: %v", ErrBadFormat, i, err)
+		}
+		if seen[e.ID] {
+			return fmt.Errorf("%w: entry %d: duplicate id", ErrBadFormat, i)
+		}
+		seen[e.ID] = true
+		*es = append(*es, e)
+	}
+	return nil // the outer decoder has already checked the closing bracket
+}
+
 // Parse decodes and validates a ring file. Unknown fields, trailing data, an unknown
 // kind, an out-of-range KDF parameter, a malformed public key or a dangling current
 // pointer are all ErrBadFormat; a newer format tag is ErrFutureVersion.
@@ -133,26 +165,24 @@ func Parse(b []byte) (*File, error) {
 
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
-	var w wireFile
+	var w struct { // wireFile with the entries decoded incrementally
+		Magic   string      `json:"magic"`
+		Current string      `json:"current"`
+		Entries wireEntries `json:"entries"`
+	}
 	if err := dec.Decode(&w); err != nil {
+		if errors.Is(err, ErrBadFormat) {
+			return nil, err // a bad entry, already described
+		}
 		return nil, ErrBadFormat
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, ErrBadFormat // trailing data
 	}
 
-	f := &File{Current: w.Current, Entries: make([]Entry, 0, len(w.Entries))}
-	seen := make(map[string]bool, len(w.Entries))
-	for i, we := range w.Entries {
-		e, err := decodeEntry(we)
-		if err != nil {
-			return nil, fmt.Errorf("%w: entry %d: %v", ErrBadFormat, i, err)
-		}
-		if seen[e.ID] {
-			return nil, fmt.Errorf("%w: entry %d: duplicate id", ErrBadFormat, i)
-		}
-		seen[e.ID] = true
-		f.Entries = append(f.Entries, e)
+	f := &File{Current: w.Current, Entries: w.Entries}
+	if f.Entries == nil {
+		f.Entries = []Entry{}
 	}
 	if f.Current != "" {
 		if e := f.Find(f.Current); e == nil || e.Kind != KindEd25519 {

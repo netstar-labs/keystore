@@ -7,10 +7,12 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -505,12 +507,50 @@ func TestListenRejectsTooLongPathWithoutSideEffects(t *testing.T) {
 	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
 		t.Errorf("rejected path left files behind: %v", left)
 	}
-	// The longest path that fits still works.
+	// The longest path that fits still works, and one byte more is refused (sun_path
+	// holds the NUL too): a limit one too high would fail in bind with "invalid argument"
+	// and leave the lock file behind, which is the original bug.
 	max := len(syscall.RawSockaddrUnix{}.Path) - 1
-	name := strings.Repeat("s", max-len(dir)-1)
-	ln, err := Listen(filepath.Join(dir, name))
+	over := filepath.Join(dir, strings.Repeat("s", max+1-len(dir)-1))
+	if len(over) != max+1 {
+		t.Fatalf("test setup: path is %d bytes, want %d", len(over), max+1)
+	}
+	if _, err := Listen(over); err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Errorf("a path of %d bytes: err = %v, want the limit error", max+1, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("max+1 path left files behind: %v", left)
+	}
+	fits := filepath.Join(dir, strings.Repeat("s", max-len(dir)-1))
+	ln, err := Listen(fits)
 	if err != nil {
 		t.Fatalf("a path of exactly %d bytes was refused: %v", max, err)
 	}
 	ln.Close()
+}
+
+// Listen narrows the process umask around bind so the socket is never reachable by
+// others. Unserialised, concurrent calls interleaved set and restore, so a later
+// "restore" wrote back another goroutine's temporary 0177 and the process kept it.
+func TestConcurrentListenRestoresUmask(t *testing.T) {
+	old := syscall.Umask(0o022)
+	t.Cleanup(func() { syscall.Umask(old) })
+	dir := sockDir(t)
+	for round := 0; round < 50; round++ {
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				ln, err := Listen(filepath.Join(dir, fmt.Sprintf("s%d.sock", i)))
+				if err == nil {
+					ln.Close()
+				}
+			}(i)
+		}
+		wg.Wait()
+		if got := syscall.Umask(0o022); got != 0o022 {
+			t.Fatalf("round %d: umask left at %#o, want 022", round, got)
+		}
+	}
 }

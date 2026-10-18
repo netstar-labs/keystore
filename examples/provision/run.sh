@@ -6,7 +6,7 @@
 RING=$WORK/prod.ks
 PASS=$WORK/pass
 
-step "operator: write the passfile (0600) — the ring's ceiling; never back it up with the ring"
+step "operator: write the passfile (0600) — with the ring it unlocks everything; never back it up with the ring"
 passfile 'provision example passphrase' "$PASS"
 [ "$(mode "$PASS")" = 600 ] || fail "passfile mode $(mode "$PASS")"
 ok "passfile is 0600"

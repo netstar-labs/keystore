@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -218,5 +219,45 @@ func TestPassfileFIFODoesNotBlock(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("opening a FIFO passfile blocked")
+	}
+}
+
+// The length check counts runes; converting the passphrase to a string and a []rune for
+// that made copies that the surrounding clear() calls can never wipe. It must count in
+// place, and count exactly as before (an invalid byte is one rune).
+func TestNewLengthCheckMakesNoCopyOfThePassphrase(t *testing.T) {
+	long := strings.Repeat("x", 100)
+	t.Setenv(EnvVar, long)
+	allocs := testing.AllocsPerRun(50, func() {
+		pw, err := New("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		clear(pw)
+	})
+	if allocs > 1 { // the one copy is resolve's own []byte(env value), which New returns
+		t.Errorf("New allocated %v times for a 100-byte passphrase, want at most 1 (the returned slice)", allocs)
+	}
+}
+
+func TestNewCountsRunesExactly(t *testing.T) {
+	for _, tc := range []struct {
+		pw string
+		ok bool
+	}{
+		{strings.Repeat("é", 11), false}, // 22 bytes, 11 runes
+		{strings.Repeat("é", 12), true},
+		{strings.Repeat("a", 11), false},
+		{strings.Repeat("a", 12), true},
+		{strings.Repeat("\xff", 11), false}, // an invalid byte counts as one rune
+		{strings.Repeat("\xff", 12), true},
+		{"日本語のパスフレーズです。。", true}, // 14 runes, 42 bytes
+	} {
+		t.Setenv(EnvVar, tc.pw)
+		pw, err := New("")
+		if (err == nil) != tc.ok {
+			t.Errorf("New(%q) err = %v, want ok=%v", tc.pw, err, tc.ok)
+		}
+		clear(pw)
 	}
 }
