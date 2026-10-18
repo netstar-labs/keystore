@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -51,7 +52,7 @@ func canonical(method, uri string, ts int64, nonce string, body []byte) []byte {
 // Sign adds the signature headers to req. body must be the exact bytes sent.
 func Sign(req *http.Request, body []byte, s crypto.Signer, now time.Time) error {
 	nb := make([]byte, 16)
-	if _, err := io.ReadFull(randReader, nb); err != nil {
+	if _, err := io.ReadFull(rand.Reader, nb); err != nil {
 		return err
 	}
 	nonce := hex.EncodeToString(nb)
