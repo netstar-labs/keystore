@@ -97,6 +97,26 @@ func (k *Keystore) Import(id string, priv ed25519.PrivateKey, passphrase []byte)
 }
 
 func (k *Keystore) addSigning(id string, passphrase []byte, key func() (ed25519.PrivateKey, error)) error {
+	return k.add(id, ringfile.KindEd25519, passphrase, func() (pub, plaintext []byte, err error) {
+		priv, err := key()
+		if err != nil {
+			return nil, nil, err
+		}
+		if plaintext, err = x509.MarshalPKCS8PrivateKey(priv); err != nil {
+			return nil, nil, err
+		}
+		if pub, err = x509.MarshalPKIXPublicKey(priv.Public()); err != nil {
+			clear(plaintext)
+			return nil, nil, err
+		}
+		return pub, plaintext, nil
+	})
+}
+
+// add is the one path by which an encrypted entry enters a ring: validate the id, then
+// under the lock refuse a duplicate, prove the passphrase against the ring, and only
+// then produce the material, encrypt it and append it.
+func (k *Keystore) add(id, kind string, passphrase []byte, material func() (pub, plaintext []byte, err error)) error {
 	if err := ids.Valid(id); err != nil {
 		return err
 	}
@@ -107,26 +127,54 @@ func (k *Keystore) addSigning(id string, passphrase []byte, key func() (ed25519.
 		if err := checkPassphrase(f, passphrase); err != nil {
 			return err
 		}
-		priv, err := key()
+		pub, plaintext, err := material()
 		if err != nil {
 			return err
 		}
-		pkcs8, err := x509.MarshalPKCS8PrivateKey(priv)
-		if err != nil {
-			return err
-		}
-		defer clear(pkcs8)
-		spki, err := x509.MarshalPKIXPublicKey(priv.Public())
-		if err != nil {
-			return err
-		}
-		e, err := encrypt(id, ringfile.KindEd25519, spki, pkcs8, passphrase)
+		defer clear(plaintext)
+		e, err := encrypt(id, kind, pub, plaintext, passphrase)
 		if err != nil {
 			return err
 		}
 		f.Entries = append(f.Entries, e)
-		if f.Current == "" {
+		if kind == ringfile.KindEd25519 && f.Current == "" {
 			f.Current = id
+		}
+		return nil
+	})
+}
+
+// ChangePassphrase re-encrypts every entry under newPass with fresh salts, nonces and the
+// current KDF cost, in one atomic write. Every entry is unlocked with oldPass first; if
+// any fails, nothing is written and the error is ErrBadPass.
+func (k *Keystore) ChangePassphrase(oldPass, newPass []byte) error {
+	if len(newPass) == 0 {
+		return errors.New("keystore: empty new passphrase")
+	}
+	return k.update(func(f *ringfile.File) error {
+		if len(f.Entries) == 0 {
+			return errors.New("keystore: ring has no entries; nothing to re-encrypt")
+		}
+		plain := make([][]byte, len(f.Entries))
+		defer func() {
+			for _, p := range plain {
+				clear(p)
+			}
+		}()
+		for i := range f.Entries {
+			p, err := unlock(&f.Entries[i], oldPass)
+			if err != nil {
+				return err
+			}
+			plain[i] = p
+		}
+		for i, e := range f.Entries {
+			ne, err := encrypt(e.ID, e.Kind, e.Pub, plain[i], newPass)
+			if err != nil {
+				return err
+			}
+			ne.Created = e.Created
+			f.Entries[i] = ne
 		}
 		return nil
 	})

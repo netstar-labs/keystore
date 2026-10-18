@@ -15,10 +15,20 @@ import (
 var update = flag.Bool("update", false, "rewrite testdata/golden.ks")
 
 const (
-	goldenPath = "../../testdata/golden.ks"
-	goldenPass = "golden ring passphrase"
-	goldenID   = "golden-ed25519"
+	goldenPath     = "../../testdata/golden.ks"
+	goldenPass     = "golden ring passphrase"
+	goldenID       = "golden-ed25519"
+	goldenSecretID = "golden-secret"
 )
+
+// goldenSecret is the golden secret entry's value: bytes 0x20..0x3f.
+var goldenSecret = func() []byte {
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = byte(0x20 + i)
+	}
+	return b
+}()
 
 // goldenSeed is the Ed25519 seed of the golden key: bytes 0x00..0x1f.
 var goldenSeed = func() []byte {
@@ -52,6 +62,9 @@ func TestGolden(t *testing.T) {
 		if err := k.Import(goldenID, priv, []byte(goldenPass)); err != nil {
 			t.Fatal(err)
 		}
+		if err := k.ImportSecret(goldenSecretID, goldenSecret, []byte(goldenPass)); err != nil {
+			t.Fatal(err)
+		}
 		b, _ := os.ReadFile(tmp)
 		if err := os.WriteFile(goldenPath, b, 0o600); err != nil {
 			t.Fatal(err)
@@ -82,5 +95,9 @@ func TestGolden(t *testing.T) {
 	}
 	if !bytes.Equal(sig, ed25519.Sign(priv, []byte("keystore golden"))) {
 		t.Fatal("unlocked key differs from the seed key")
+	}
+	sec, err := k.Secret(goldenSecretID, []byte(goldenPass))
+	if err != nil || !bytes.Equal(sec, goldenSecret) {
+		t.Fatalf("golden secret = %x, %v", sec, err)
 	}
 }
