@@ -81,7 +81,7 @@ five working days.
   unreadable. This is no worse than deleting the file; write access to the ring is the
   boundary.
 - **Ring JSON is decoded with Go's `encoding/json`**, which matches keys case-insensitively
-  and lets a duplicate key win. Every entry field that protects a key is authenticated, so
+  and lets a duplicate key win (a repeated `entries` key is rejected). Every entry field that protects a key is authenticated, so
   this cannot bypass the encryption; `current`, entry order and `created` are not, and anyone
   who can write the ring can change them anyway. Another tool might read a different value
   than this one does.

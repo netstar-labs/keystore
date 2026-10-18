@@ -116,7 +116,12 @@ type wireFile struct {
 type wireEntries []Entry
 
 func (es *wireEntries) UnmarshalJSON(b []byte) error {
-	*es = nil // a duplicated `entries` key replaces the earlier array; each occurrence is validated
+	if *es != nil {
+		// A second `entries` key (any case, even empty) is rejected: each occurrence costs a
+		// fresh Decoder, so 16 MiB of `"entries":[],` was ~1.9 s and ~786 MiB of garbage.
+		return ErrBadFormat // no fmt.Errorf: json still calls us for every repeat and keeps going
+	}
+	*es = wireEntries{} // non-nil marks "seen"; Parse still yields an empty, non-nil ring
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if t, err := dec.Token(); err != nil || (t != json.Delim('[') && t != nil) {

@@ -502,6 +502,29 @@ func TestParseEntriesShapes(t *testing.T) {
 	if _, err := Parse([]byte(dup)); !errors.Is(err, ErrBadFormat) {
 		t.Fatalf("duplicate entries key with an invalid occurrence: %v", err)
 	}
+	// A second `entries` key is rejected outright (even an empty one, in any case): each
+	// occurrence cost a fresh Decoder, so 16 MiB of `"entries":[],` was accepted at ~1.9 s
+	// and ~786 MiB of garbage. Rejecting at the second key makes the cost constant.
+	for _, d := range []string{
+		`{"magic":"keystore/v1","entries":[],"entries":[]}`,
+		`{"magic":"keystore/v1","entries":[],"Entries":null}`,
+		`{"magic":"keystore/v1","entries":null,"entries":[]}`,
+	} {
+		if _, err := Parse([]byte(d)); !errors.Is(err, ErrBadFormat) {
+			t.Fatalf("Parse(%s) = %v, want ErrBadFormat", d, err)
+		}
+	}
+	ring := []byte(`{` + strings.Repeat(`"entries":[],`, (MaxSize-40)/13) + `"magic":"keystore/v1"}`)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := Parse(ring)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, ErrBadFormat) {
+		t.Fatalf("repeated entries key: Parse = %v, want ErrBadFormat", err)
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 64<<20 {
+		t.Fatalf("repeated entries key allocated %d MiB, want < 64 (the decoder buffers the input ~2x; it was ~786)", got>>20)
+	}
 	if _, err := Parse([]byte(`{"magic":"keystore/v1","entries":[null]}`)); !strings.Contains(fmt.Sprint(err), "invalid entry id") {
 		t.Fatalf("null element: %v", err)
 	}

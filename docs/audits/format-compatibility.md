@@ -73,5 +73,5 @@ All are now covered by the rows above. `golden.ks` itself is untouched
 
 - `TestMarshalGoldenBytes` etc. run on every platform; `TestKeychainArgvGolden` is darwin-only by file suffix (the functions are).
 - The agent socket path/mode rules and the lock file's flock semantics are behaviour, not byte layout; the name only is pinned.
-- Read-side acceptance rules in `format.md` (case folding, duplicate keys, number forms, offsets) were not re-audited here; `ringfile_test.go` covers many (inferred from test names, not re-run per rule).
+- Read-side acceptance rules in `format.md` (case folding, duplicate keys, number forms, offsets; a duplicated `entries` key is now rejected, see audit L1 — no writer emits one) were not re-audited here; `ringfile_test.go` covers many (inferred from test names, not re-run per rule).
 - `golden.ks` regeneration (`-update`) is not blocked by a hash check: that flag is the documented way to rewrite it and the contract forbids changing it; the gate compares the sha256 manually.
