@@ -6,14 +6,13 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 )
 
 const (
 	pemPrivate = "PRIVATE KEY" // PKCS#8, RFC 5958 / RFC 8410
 	pemPublic  = "PUBLIC KEY"  // SPKI, RFC 5280 / RFC 8410
 )
-
-var errPEM = errors.New("keystore: expected exactly one PEM block of the right type")
 
 // MarshalPublicKeyPEM encodes pub as an SPKI "PUBLIC KEY" PEM block.
 func MarshalPublicKeyPEM(pub ed25519.PublicKey) ([]byte, error) {
@@ -53,10 +52,26 @@ func ParsePrivateKeyPEM(b []byte) (ed25519.PrivateKey, error) {
 	return parsePKCS8(der)
 }
 
+// onePEM returns the bytes of the single PEM block of type typ in b, saying what was found
+// when it is something else (an encrypted, PKCS#1 or SEC1 key is the usual surprise).
 func onePEM(b []byte, typ string) ([]byte, error) {
 	block, rest := pem.Decode(b)
-	if block == nil || block.Type != typ || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
-		return nil, errPEM
+	switch {
+	case block == nil:
+		return nil, errors.New("keystore: no PEM block found")
+	case block.Type != typ:
+		hint := ""
+		if block.Type == "ENCRYPTED PRIVATE KEY" {
+			hint = "; decrypt it first (openssl pkey -in ENCRYPTED.pem -out plain.pem)"
+		}
+		return nil, fmt.Errorf("keystore: found a %q PEM block, expected %q%s", block.Type, typ, hint)
+	case len(block.Headers) != 0:
+		return nil, errors.New("keystore: the PEM block has headers (a legacy encrypted key); only a plain PKCS#8 or SPKI block is accepted")
+	case len(bytes.TrimSpace(rest)) != 0:
+		if next, _ := pem.Decode(rest); next != nil {
+			return nil, errors.New("keystore: more than one PEM block; exactly one is expected")
+		}
+		return nil, errors.New("keystore: unexpected text after the PEM block")
 	}
 	return block.Bytes, nil
 }
