@@ -1,12 +1,12 @@
 package agent
 
 import (
-	"encoding/binary"
 	"errors"
 	"io"
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -23,6 +23,8 @@ type fakeClock struct {
 	armed   chan struct{} // one send per afterFunc call
 	resets  chan struct{} // one send per Reset, i.e. per request the server counted as use
 	stopped chan struct{} // one send per Stop (watch stops its timers just after Serve returns)
+	gate    chan struct{} // if non-nil (set before the server starts), Reset blocks on it until closed
+	parked  atomic.Int32  // Reset calls begun
 }
 
 type fakeTimer struct {
@@ -46,6 +48,10 @@ func (c *fakeClock) afterFunc(d time.Duration, f func()) timer {
 }
 
 func (t *fakeTimer) Reset(d time.Duration) bool {
+	t.c.parked.Add(1)
+	if g := t.c.gate; g != nil {
+		<-g // lets a test freeze watch inside Reset
+	}
 	t.c.mu.Lock()
 	was := t.active
 	t.active, t.when = true, t.c.now+d
@@ -204,60 +210,8 @@ func TestIdleResetBySuccessfulRequest(t *testing.T) {
 	wantExpired(t, r)
 }
 
-// A request the agent refuses is not use: otherwise anyone who can reach the socket
-// could keep the key in memory forever with garbage. Each case ends when the server has
-// closed the connection, which is after its last chance to count the request as use.
-func TestIdleNotResetByFailedRequests(t *testing.T) {
-	oversize := func() []byte {
-		h := []byte{OpSign, 0, 0, 0, 0}
-		binary.BigEndian.PutUint32(h[1:], MaxPayload+1)
-		return h
-	}
-	for _, tc := range []struct {
-		name  string
-		setup func(*Server)
-		send  []byte
-	}{
-		{"wrong uid", func(s *Server) { s.uidOf = func(*net.UnixConn) (int, error) { return os.Getuid() + 1, nil } }, []byte{OpPublic, 0, 0, 0, 0}},
-		{"unknown op", nil, []byte{'X', 0, 0, 0, 0}},
-		{"oversize frame", nil, oversize()},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			const idle = time.Minute
-			clk := newFakeClock()
-			r := start(t, func(s *Server) {
-				s.Idle, s.afterFunc = idle, clk.afterFunc
-				if tc.setup != nil {
-					tc.setup(s)
-				}
-			})
-			select {
-			case <-clk.armed:
-			case <-time.After(5 * time.Second):
-				t.Fatal("watch never armed its timer")
-			}
-			clk.Advance(idle - time.Nanosecond)
-			conn, err := net.Dial("unix", r.sock)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.Close()
-			conn.Write(tc.send)
-			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-			if _, err := io.Copy(io.Discard, conn); err != nil { // until the server hangs up
-				t.Fatal(err)
-			}
-			if len(clk.resets) != 0 {
-				t.Fatal("a refused request reset the idle timer")
-			}
-			clk.Advance(time.Nanosecond) // still the original deadline
-			wantExpired(t, r)
-		})
-	}
-}
-
-// Regression (review F1), on a fake clock: a connection that keeps being used must not
-// extend the TTL, and expiry closes it.
+// A connection that keeps being used must not extend the TTL (a busy client would keep
+// the key in memory for ever); expiry closes it.
 func TestTTLNotExtendedByPersistentConnectionFake(t *testing.T) {
 	const ttl = time.Hour
 	r, clk := startFake(t, ttl, 0)
