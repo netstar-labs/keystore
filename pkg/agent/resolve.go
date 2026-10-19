@@ -11,7 +11,11 @@ import (
 // ring case.
 func ResolveSigner(agentSock, ringPath, id string, passphrase func() ([]byte, error)) (crypto.Signer, error) {
 	if agentSock != "" {
-		return Dial(agentSock)
+		c, err := Dial(agentSock)
+		if err != nil {
+			return nil, err // not c: a nil *Client in a non-nil interface
+		}
+		return c, nil
 	}
 	k, err := keystore.Open(ringPath)
 	if err != nil {
