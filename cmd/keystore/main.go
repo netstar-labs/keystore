@@ -29,7 +29,8 @@ func main() {
 }
 
 // Exit statuses. A signature that does not verify has its own code so automation can tell
-// "this is bad" from "could not check" (a missing file, an unreadable key).
+// "this is bad" from "could not check" (a missing file, an unreadable key, a signature file
+// that is not a signature at all: only a well-formed signature that fails is "bad").
 const (
 	exitFailure      = 1
 	exitUsage        = 2
@@ -37,7 +38,7 @@ const (
 )
 
 // report prints err to w and returns the process exit status: 0 for success and help,
-// exitUsage for a usage error, exitBadSignature for a signature that does not verify,
+// exitUsage for a usage error, exitBadSignature for a well-formed signature that does not verify,
 // exitFailure for anything else. Messages are cleaned: they can echo input the
 // operator's script took from elsewhere.
 func report(w io.Writer, err error) int {

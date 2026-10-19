@@ -56,7 +56,7 @@ keystore keygen -keystore "$WORK/attacker.ks" -passfile "$PASS" -id evil >/dev/n
 keystore sign -keystore "$WORK/attacker.ks" -passfile "$PASS" -in "$T/SHA256SUMS" -o "$T/SHA256SUMS.sig"
 expect_refusal "release signed by another key" "does not verify" deploy "$T"
 
-step "a signature that does not verify is exit 3, distinct from a check that could not be made"
+step "a well-formed signature that does not verify is exit 3, distinct from a check that could not be made (exit 1)"
 set +e; (cd "$T" && keystore verify -pub "$DEPLOY/trust/release.pub" -sig SHA256SUMS.sig -in SHA256SUMS) >/dev/null 2>&1; rc=$?
 (cd "$T" && keystore verify -pub "$DEPLOY/trust/release.pub" -sig SHA256SUMS.sig -in /nonexistent) >/dev/null 2>&1; rc2=$?; set -e
 [ "$rc" = 3 ] || fail "a bad signature exited $rc, want 3"
