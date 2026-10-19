@@ -8,13 +8,16 @@
   user with no group or other permissions; the agent refuses any other directory.
 - The socket's directory must already exist (the agent does not create it), and the whole
   socket path must fit the OS limit for a unix socket address: at most 103 bytes on macOS, 107
-  on Linux. A longer path is refused with an error naming the limit, before anything is
-  created.
+  on Linux. A relative path is made absolute first, and the limit applies to the absolute
+  form. A longer path is refused with an error naming the limit, before anything is created.
 - The agent owns the path through an exclusive `flock` on `<socket>.lock`, held for its
   whole life. A second agent — even one starting at the same instant — refuses to start and
   never touches the socket. Without the lock held, a socket something still answers on is
   also refused; a stale one is removed; any non-socket file at the path is refused.
-- The socket is removed when the agent stops: SIGINT, SIGTERM, SIGHUP (a closed terminal; there is no reload; ignored if inherited as ignored, as under `nohup`), `-ttl` or `-idle` expiry.
+- The socket is removed when the agent stops: SIGINT, SIGTERM, SIGHUP (a closed terminal; there is no reload; ignored if inherited as ignored, as under `nohup`), `-ttl` or `-idle` expiry. If the file at the socket path is no longer the one the agent
+  created (removed, or replaced by something else), stopping does not remove it. This is
+  best effort: a same-user replacement landing in the instant of the close can still be
+  removed.
 
 ## Peer check
 

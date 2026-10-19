@@ -86,7 +86,7 @@ type timer interface {
 type Listener struct {
 	*net.UnixListener
 	lock *os.File
-	path string      // the socket path
+	path string      // the socket path, absolute
 	sock os.FileInfo // the socket file as created, to notice its removal or replacement
 
 	closeOnce sync.Once
@@ -119,14 +119,23 @@ func (l *Listener) Close() error {
 // Ownership of the path is decided by an exclusive flock on path+".lock", held until the
 // listener is closed: a second agent — even one racing this one — gets ErrInUse and never
 // touches the socket. An existing socket that something still answers on is also
-// ErrInUse; a stale one is removed; anything else at path is refused. The path must fit
-// the platform's sun_path (103 bytes on macOS, 107 on Linux), else Listen says so before
-// creating anything.
+// ErrInUse; a stale one is removed; anything else at path is refused. A relative path is
+// made absolute first, so a later chdir does not move the socket. The absolute path must
+// fit the platform's sun_path (103 bytes on macOS, 107 on Linux), else Listen says so
+// before creating anything.
 //
 // The process umask is narrowed to 0177 for the duration of the bind, so the socket is
 // never reachable by others; files another goroutine of the embedding process creates in
 // that window get a narrower mode too.
 func Listen(path string) (*Listener, error) {
+	// Absolute from the start: the agent outlives the caller's idea of "here", and both the
+	// loss check and UnixListener's unlink-on-close act on the name bound, so a relative one
+	// would be looked up in whatever directory the process has moved to. sun_path's limit
+	// applies to the bound name, hence to the absolute path.
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	if max := len(syscall.RawSockaddrUnix{}.Path) - 1; len(path) > max { // sun_path holds a NUL too
 		return nil, fmt.Errorf("keystore agent: socket path is %d bytes; this platform allows at most %d", len(path), max)
 	}
