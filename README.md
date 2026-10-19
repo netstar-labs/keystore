@@ -47,8 +47,9 @@ go install github.com/netstar-labs/keystore/cmd/keystore-agent@latest
 
 Requires Go 1.27 or newer; macOS and Linux. Release builds (`build/keystore --release`) use
 `-trimpath`, `CGO_ENABLED=0` and the toolchain pinned in `go.mod`, so the binaries come out
-byte-identical from the same clean git checkout; `--release` refuses a dirty tree, and a dev
-build from one is stamped `-dirty`. The archives and the SBOM embed timestamps, so their
+byte-identical from the same clean checkout of an exact tag; `--release` refuses a dirty tree
+and a HEAD that is not exactly a tag (tag first), and a dev build from either is stamped
+(`-dirty`, `-N-gSHA`). The archives and the SBOM embed timestamps, so their
 checksums differ from run to run. The archives carry this README without the `docs/` tree; the
 documentation lives in the repository.
 
