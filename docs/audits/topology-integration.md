@@ -74,6 +74,13 @@ the entry that is current. I report it as added, not as a proven killer.
 always resetting `current`, entries reversed on every write, and the ring-direct signer
 choosing the first entry (table above).
 
+**Indirect kills (skeptic, re-verified at 4c490e8).** Two mutants die without reaching the old-or-new
+comparison: `Remove` leaving `current` dangling (the library refuses to write an invalid ring, so
+the `rm` fails and the test reports a defect), and a `passwd` that skips re-encrypting one entry (the
+next `passwd` fails with "wrong passphrase or corrupt entry" during calibration). A `passwd` that
+keeps one entry's old nonce but writes a new ciphertext is not tested: the comparison only requires
+each entry to differ in nonce or ciphertext.
+
 #### The in-place-write mutant needs many iterations
 
 `Save` truncating and writing in place is caught only when a kill lands in the short window
@@ -142,9 +149,9 @@ Reading it:
   processes** (worker operations, including wrong-passphrase adds, plus `passwd` runs);
   numerator: every process that ended in `ErrLocked`. macOS: 375/1035 = 36 % (8 workers),
   1106/2033 = 54 % (16), 977/1515 = 64 % (32). Linux container: 738/1518 = 49 % (16),
-  602/1010 = 60 % (32). (The skeptic's review counts the same data without the
-  wrong-passphrase adds and per worker operations, giving 34/51/60 % and 45/55 %; the
-  difference is only the denominator and those adds.)
+  602/1010 = 60 % (32). The numerators exceed the add/rm/use/passwd locked counts in the
+  table by the wrong-passphrase adds that ended in `ErrLocked` (*inferred*: that column is
+  not in the table, and each difference is below the run's wrong-passphrase add count).
 * Cause of the high `ErrLocked` rate (*verified* measurement, *inferred* link): `passwd`
   re-derives every entry, about 0.33 s each (`passwd` of a 40-entry ring took 13 s on this
   Mac, measured twice, whole-second resolution, longer than the 10 s lock wait), and the test's ring grows to 70-130 entries
@@ -267,8 +274,8 @@ It was not a product defect: the refusals themselves were "stale passphrase whil
   verified, Linux 21 715; agent suite at 5/5/10 rounds and cross-uid unchanged), but the
   full-scale contention and fleet runs were not repeated.
 * Entry contents and order: the revised crash model compares file order and each entry's
-  public key, nonce and ciphertext (byte-identical for untouched entries, all different
-  after `passwd`); the contention and fleet tests compare only the set of ids.
+  public key, nonce and ciphertext (byte-identical for untouched entries; after `passwd`
+  an entry must differ from the old one in nonce or ciphertext, not necessarily both); the contention and fleet tests compare only the set of ids.
 * Ring-direct signing is asserted to use `current` only when no `use` was in flight, and
   only for the three keys the fleet creates.
 
