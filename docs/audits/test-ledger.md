@@ -45,7 +45,7 @@ the package) [R]; blank where none was recorded.
 | `cmd/keystore` | 63 | 79.1 | 93.4 | verb tables, goldens, exit codes, fuzz, bench |
 | `cmd/keystore-agent` | 16 | 91.2 | 93.2 | flags, signals, log sink |
 | `build` | 3 | n/a | no statements | the release script, run in a temporary git repository |
-| `examples/secrets`, `examples/signed-requests` | 4, 5 | 65.7, 79.8 | 71.4, 79.8 | unit + `run.sh` |
+| `examples/secrets`, `examples/signed-requests` | 4, 5 | 65.7, 79.8 | 65.7, 79.8 | unit + `run.sh` |
 | other `examples/*` | 1 each | n/a | no statements | `go test` runs the `run.sh` |
 | `integration/topology` | tagged only | n/a | no test files under default tags | see [topology-integration.md](topology-integration.md) |
 
