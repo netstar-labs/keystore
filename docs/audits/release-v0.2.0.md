@@ -169,4 +169,32 @@ v0.2.0`); if the module proxy already fetched it, add a `retract v0.2.0` line to
 
 ## Publish log
 
-(Appended after the tag; see the repository's git history for the commit that fills this in.)
+Run on 2026-10-19 by the assistant with the owner's go-ahead for steps 1 to 5 of "To publish" (step 6, the
+LICENSE and the visibility flip, was not authorised and was not done). Labels as above; every line is [V]
+unless marked.
+
+1. **Repository:** `gh repo create netstar-labs/keystore --private`, remote `origin`, `git push -u origin main`
+   (branches only; no tags). Visibility `PRIVATE`, default branch `main`. The local `v0.1.0` tag was not pushed
+   (`git ls-remote --tags origin` listed only `v0.2.0` afterwards).
+2. **CI:** the first run (at `60f42b0`) failed in the `ci` job: `deadcode` on an ubuntu build also reports the
+   darwin-only `checkService` as unreachable, which local darwin runs never showed. Fixed by merge `393c0ea` (an
+   exact allowance in the workflow; a planted dead function still fails). Runs at `393c0ea` and at `87189fa`
+   (the release commit) were green for all four jobs (`ci`, `ci-macos`, `fuzz`, `fuzz-all`).
+3. **Tag:** annotated `v0.2.0` on `87189fa` (the CI-green commit), `git push origin v0.2.0`.
+4. **Build:** `build/keystore --release` from the tagged, clean tree built four archives; `shasum -a 256 -c
+   SHA256SUMS` passed; the binaries print `keystore v0.2.0 (87189fa3ed49)`.
+5. **GitHub release:** `gh release create v0.2.0 --latest` (private repository, so private release) with the
+   four archives, `SHA256SUMS` and `THIRD-PARTY-NOTICES`. A download of the darwin-arm64 archive and
+   `SHA256SUMS` from the release verified and the extracted binary ran.
+6. **Module install from a clean environment:** `GOPATH=<empty temp dir> GOPRIVATE=github.com/netstar-labs
+   GOPROXY=direct go install github.com/netstar-labs/keystore/cmd/keystore@v0.2.0` (and `keystore-agent`)
+   succeeded. One finding: a binary built this way prints `keystore dev (none)`, because the version is
+   stamped only by the release script's `-ldflags`; see [open-items.md](open-items.md), O9.
+7. **Repository metadata:** description (set at creation), homepage `https://pkg.go.dev/github.com/netstar-labs/keystore`
+   and topics `cli cryptography ed25519 go golang keyring library security` set. **Branch protection was not
+   applied:** GitHub returns HTTP 403 for rulesets on a private repository on this plan ("Upgrade to GitHub Pro
+   or make this repository public"); the house recipe also requires a `pr-issue-link` check this repository does
+   not have. Apply it when the repository goes public or the plan changes.
+8. **Not done, by design:** the `LICENSE` file (Apache-2.0, "NetSTAR Global, Inc.", decisions row 2) and the
+   visibility flip; the private-name screen must be re-run first (tracked files and commit messages were clean at
+   `87189fa`; issues and pull requests do not exist yet).
