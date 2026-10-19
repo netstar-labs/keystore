@@ -295,7 +295,7 @@ func TestSocketLostLogLineIsInert(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(base) })
-	dir := filepath.Join(base, "d\x1b[31m\rkeystore: FORGED")
+	dir := filepath.Join(base, "d\x1b[31m\rkeystore: FORGED\nFORGEDLINE: agent compromised")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +332,12 @@ func TestSocketLostLogLineIsInert(t *testing.T) {
 	for _, r := range out.String() {
 		if r != '\n' && !unicode.IsPrint(r) {
 			t.Fatalf("terminal-active rune %U in %q", r, out.String())
+		}
+	}
+	// A newline in the operator-supplied path must not start a forged line of its own.
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(line, "FORGEDLINE") {
+			t.Fatalf("a path forged a log line: %q", out.String())
 		}
 	}
 }
