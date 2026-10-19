@@ -81,3 +81,9 @@ stamps it: a binary from `go install` reports `dev (none)`.
 | `scripts/` | `topology.sh`, the driver for the real-topology tier |
 | `testdata/` | golden ring fixtures that pin the format |
 | `build/keystore` | build and packaging: `build/keystore` (linux/amd64 install package) or `build/keystore --release` (all platforms, SHA256SUMS, SPDX SBOM, notices) |
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE) (copyright 2026 NetSTAR Global, Inc.). The binaries include BSD-3-Clause
+code from the Go standard library and `golang.org/x/{crypto,sys}`; its notice is in
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES) and ships in every release archive.
