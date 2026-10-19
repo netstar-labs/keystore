@@ -29,7 +29,7 @@ reports are single-auditor reports, and their rows say what was done about them.
 | [untestable-without-x.md](untestable-without-x.md) | What could not be run here, and the exact command for a human to run |
 | [audit-plan.md](audit-plan.md) | The audit's plan of record: waves, ground rules, orchestration, per-finding pipeline, status at close |
 | [audit-ledger.md](audit-ledger.md) | The running ledger kept during the audit (candidates, skeptic verdicts as reported); the findings page is the cleaned version |
-| [release-v0.2.0.md](release-v0.2.0.md) | The prepared (not tagged, not published) release: version rationale, notes with the breaking changes and their migration steps, verification block, build and publish commands, rollback |
+| [release-v0.2.0.md](release-v0.2.0.md) | The v0.2.0 release record (published as a private release first; superseded as latest by v0.2.1, which adds the LICENSE): version rationale, notes with the breaking changes and their migration steps, verification block, build and publish commands, rollback |
 | [release-v0.1.0.md](release-v0.1.0.md) | Historical record of the `v0.1.0` tag, with a banner listing its stale places; superseded by the release step |
 
 ## Planned outputs not produced as separate pages, and why

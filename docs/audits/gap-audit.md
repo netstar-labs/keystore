@@ -56,7 +56,7 @@ Severity is auditor -> skeptic. "Status" is what happened afterwards.
 | G16 | documented | `examples/secrets` README said `run.sh` shows a world-readable passfile and a modified entry; it shows a wrong passphrase and a missing secret (the other two are in `main_test.go`). | LOW | CONFIRMED | **Closed, this branch** |
 | G17 | wired, not verified | `examples/agent-service/run.sh` prints "well-formed" but the systemd branch ends in an unconditional `true`; only CI's step can fail. | INFO | CONFIRMED | **Closed, this branch**: the step is retitled "informational; CI gates the systemd check" |
 | G18 | documented, not operable | README Layout omitted `integration/` and `scripts/`; no page said how to run the opt-in tiers or linked the audits. | LOW | CONFIRMED | **Closed, this branch** |
-| G19 | handed on | No inventory row for keystore in the owner's internal project inventory, which is generated from GitHub; only the description and doc-index entry are manual. | LOW -> INFO | PLAUSIBLE | **Open, owner** (O6) |
+| G19 | handed on | No inventory row for keystore in the organization's repository inventory, which is generated from GitHub; only the description and doc-index entry are manual. | LOW -> INFO | PLAUSIBLE | **Open, owner** (O6) |
 | G20 | closed, hygiene | At the A7 audit, 33 merged branches and 14 `worktree-agent-*` branches remained (re-count before deleting). | INFO | CONFIRMED | **Open, owner** (O7) |
 | G21 | verified (platform) | amd64 is promised and never executed. Skeptic adds: darwin/amd64 is not executed even in CI. | LOW | PLAUSIBLE | Won't fix; first CI run ([open-items.md](open-items.md) section 2) |
 
