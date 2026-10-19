@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -194,6 +195,11 @@ func TestServingLineAndUsageAreInertAndPresent(t *testing.T) {
 func TestSignalsStopTheAgentCleanly(t *testing.T) {
 	for name, s := range map[string]os.Signal{"SIGHUP": syscall.SIGHUP, "SIGTERM": syscall.SIGTERM, "SIGINT": os.Interrupt} {
 		t.Run(name, func(t *testing.T) {
+			if s == syscall.SIGHUP && signal.Ignored(syscall.SIGHUP) {
+				// The child inherits the ignore (nohup, some CI) and the agent then honours it
+				// (TestInheritedIgnoredSIGHUPIsHonoured), so it would not stop.
+				t.Skip("SIGHUP is ignored in the test process; the agent child inherits that")
+			}
 			cmd, sock := startAgent(t, false)
 			if err := cmd.Process.Signal(s); err != nil {
 				t.Fatal(err)
