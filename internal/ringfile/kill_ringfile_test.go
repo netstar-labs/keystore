@@ -134,9 +134,10 @@ func TestFutureVersionIsOnlyAboveOne(t *testing.T) {
 	}
 }
 
-// A repeated "entries" key follows encoding/json: the last one wins, and the earlier
-// array's entries are not kept (each occurrence is validated on its own).
-func TestRepeatedEntriesKeyLastWins(t *testing.T) {
+// A repeated "entries" key is rejected (decisions row 41): the old last-one-wins rule let 16 MiB
+// of repeats cost ~786 MiB to parse. Neither array's entries are kept, and a repeat of an
+// empty or valid array is refused the same way.
+func TestRepeatedEntriesKeyIsRejected(t *testing.T) {
 	one, _ := Marshal(&File{Entries: []Entry{entry(t, "first", KindSecret)}})
 	two, _ := Marshal(&File{Entries: []Entry{entry(t, "second", KindSecret)}})
 	arr := func(b []byte) string {
@@ -144,13 +145,14 @@ func TestRepeatedEntriesKeyLastWins(t *testing.T) {
 		i := strings.Index(s, `"entries":`)
 		return strings.TrimSpace(s[i+len(`"entries":`) : strings.LastIndex(s, "}")])
 	}
-	doc := `{"magic":"keystore/v1","current":"","entries":` + arr(one) + `,"entries":` + arr(two) + `}`
-	f, err := Parse([]byte(doc))
-	if err != nil {
-		t.Fatalf("Parse = %v", err)
-	}
-	if len(f.Entries) != 1 || f.Entries[0].ID != "second" {
-		t.Fatalf("entries = %+v, want only the last array's entry", f.Entries)
+	for name, doc := range map[string]string{
+		"two valid arrays": `{"magic":"keystore/v1","current":"","entries":` + arr(one) + `,"entries":` + arr(two) + `}`,
+		"valid then empty": `{"magic":"keystore/v1","current":"","entries":` + arr(one) + `,"entries":[]}`,
+		"empty then valid": `{"magic":"keystore/v1","current":"","entries":[],"entries":` + arr(two) + `}`,
+	} {
+		if f, err := Parse([]byte(doc)); !errors.Is(err, ErrBadFormat) {
+			t.Errorf("%s: Parse = %+v, %v; want ErrBadFormat", name, f, err)
+		}
 	}
 }
 
