@@ -117,6 +117,11 @@ func TestClassifyRun(t *testing.T) {
 		{"uid 0 leg missing", stream(2, []string{"1000"}, 3), 0, nil, 2, fail, "uid 0 reported 0"},
 		{"extra unexpected package", stream(3, both, 3), 0, nil, 2, fail, "want 2"},
 		{"every test skipped", stream(2, both, 0), 0, nil, 2, fail, "only skipped"},
+		// A COUNTS line whose format drifted must fail closed, not pass.
+		{"counts field renamed", strings.ReplaceAll(stream(2, both, 3), "pass=3", "ok=3"), 0, nil, 2, fail, "only skipped"},
+		{"counts pass=0 not followed by a space", strings.ReplaceAll(stream(2, both, 0), " skip=0 fail=0", ""), 0, nil, 2, fail, "only skipped"},
+		// A failing result must not be hidden by a test printing the skip marker at column 0.
+		{"failure plus a fake skip marker", "KSL3 BEGIN x\nKSL3 RESULT uid=0 pkg=p rc=1\nKSL3 SKIP pretend\nKSL3 DONE\n", 1, nil, 1, fail, "failing"},
 	} {
 		v, why := classifyRun(tc.out, tc.exit, tc.err, tc.want)
 		if v != tc.v || !strings.Contains(why, tc.sub) {

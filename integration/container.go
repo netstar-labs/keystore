@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -122,7 +123,9 @@ func classifyRun(out string, exit int, runErr error, want int) (verdict, string)
 	if !began {
 		return skip, fmt.Sprintf("container exited %d before the keystore run began: %s", exit, firstLine(out, nil))
 	}
-	if exit == exitSkip || hasLine(lines, markSkip) {
+	// A skip marker only counts before any test ran: one printed alongside RESULT lines
+	// (a test's own output at column 0) must not turn a failure into a skip.
+	if exit == exitSkip || (hasLine(lines, markSkip) && !hasLine(lines, markResult)) {
 		return skip, skipReason(lines)
 	}
 	var bad []string
@@ -136,7 +139,7 @@ func classifyRun(out string, exit int, runErr error, want int) (verdict, string)
 				bad = append(bad, rest)
 			}
 		}
-		if rest, found := strings.CutPrefix(l, markCounts); found && !strings.Contains(rest, " pass=0 ") {
+		if rest, found := strings.CutPrefix(l, markCounts); found && passCount(rest) > 0 {
 			passing[uidOf(rest)]++
 		}
 	}
@@ -161,6 +164,21 @@ func classifyRun(out string, exit int, runErr error, want int) (verdict, string)
 		}
 	}
 	return pass, ""
+}
+
+// passCount extracts N from the "pass=N" field of a COUNTS payload; a missing or malformed
+// field is 0, so a format drift fails closed.
+func passCount(rest string) int {
+	for _, f := range strings.Fields(rest) {
+		if v, ok := strings.CutPrefix(f, "pass="); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return 0
+			}
+			return n
+		}
+	}
+	return 0
 }
 
 // uidOf extracts N from a "uid=N pkg=..." marker payload.
