@@ -601,3 +601,12 @@ func TestNoRingPathWithoutHomeIsAUsageErrorNotACwdRing(t *testing.T) {
 		}
 	}
 }
+
+// A script author reading only `verify -h` or the generated reference must learn that a
+// signature that does not verify is exit 3 (not the generic failure 1).
+func TestVerifyHelpStatesExitThree(t *testing.T) {
+	_, errOut, _ := cli(t, "verify", "-h")
+	if !strings.Contains(errOut, "exit 3") {
+		t.Errorf("verify -h does not mention exit 3:\n%s", errOut)
+	}
+}

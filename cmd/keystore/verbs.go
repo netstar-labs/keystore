@@ -46,7 +46,7 @@ var verbs = []verb{
 	{"passwd", "change the ring passphrase and re-encrypt every entry", setupPasswd},
 	{"keychain-set", "store the ring passphrase in the macOS login keychain (security prompts for it)", setupKeychainSet},
 	{"sign", "sign up to 1 MiB from -in FILE or stdin with a ring key or an agent; prints a base64 signature", setupSign},
-	{"verify", "verify a signature over -in FILE or stdin with a public key PEM; no ring needed", setupVerify},
+	{"verify", "verify a signature over -in FILE or stdin with a public key PEM; no ring needed; exit 3 if it does not verify", setupVerify},
 }
 
 // defaultRing is used when neither -keystore nor KEYSTORE_FILE is given. It is empty when
