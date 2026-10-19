@@ -6,7 +6,8 @@ import (
 )
 
 // Clean replaces every non-printable rune with a space: control characters including
-// ESC, CR, DEL and C1, line and paragraph separators, bidi overrides, and invalid UTF-8.
+// ESC, CR, DEL and C1, line and paragraph separators, and bidi overrides. Each invalid
+// UTF-8 byte becomes U+FFFD (printable, so kept as is), never raw.
 // Anything a command prints that it did not produce itself (a file name an operator's
 // script took from an archive or an upload, an OS error that quotes one) goes through it,
 // so an escape sequence or a carriage return cannot act on the terminal or forge a line

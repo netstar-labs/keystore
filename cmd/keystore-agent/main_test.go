@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"errors"
@@ -281,5 +282,62 @@ func waitExit(t *testing.T, cmd *exec.Cmd, what string) error {
 		cmd.Process.Kill()
 		t.Fatalf("agent ignored %s", what)
 		return nil
+	}
+}
+
+// The 'socket was removed or replaced' line quotes the socket path from inside pkg/agent,
+// which cannot know the path came from an operator. The command's log sink must clean it:
+// a directory named with ESC and CR otherwise reaches the terminal raw.
+func TestSocketLostLogLineIsInert(t *testing.T) {
+	ring, _, _ := fixture(t)
+	base, err := os.MkdirTemp("/tmp", "kag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	dir := filepath.Join(base, "d\x1b[31m\rkeystore: FORGED\nFORGEDLINE: agent compromised")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(dir, "a.sock")
+	pf := filepath.Join(t.TempDir(), "pf")
+	if err := os.WriteFile(pf, []byte(pass), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-keystore", ring, "-sock", sock, "-passfile", pf)
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill() })
+	waitFor(t, sock)
+	if err := os.Remove(sock); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select { // the agent notices a lost socket on a 10 s check
+	case err := <-done:
+		if err == nil {
+			t.Fatal("agent exited 0 after its socket was removed, want 1")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("agent did not stop after its socket was removed")
+	}
+	if !strings.Contains(out.String(), "was removed or replaced") {
+		t.Fatalf("no socket-lost line: %q", out.String())
+	}
+	for _, r := range out.String() {
+		if r != '\n' && !unicode.IsPrint(r) {
+			t.Fatalf("terminal-active rune %U in %q", r, out.String())
+		}
+	}
+	// A newline in the operator-supplied path must not start a forged line of its own.
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(line, "FORGEDLINE") {
+			t.Fatalf("a path forged a log line: %q", out.String())
+		}
 	}
 }
