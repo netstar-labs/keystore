@@ -27,6 +27,7 @@ reports are single-auditor reports, and their rows say what was done about them.
 | [live-integration.md](live-integration.md) | The Linux container, OpenSSL and keychain tiers |
 | [topology-integration.md](topology-integration.md) | Real processes, real filesystem: contention, SIGKILL loops, cross-uid, agent chaos, fleet |
 | [untestable-without-x.md](untestable-without-x.md) | What could not be run here, and the exact command for a human to run |
+| [release-v0.2.0.md](release-v0.2.0.md) | The prepared (not tagged, not published) release: version rationale, notes with the breaking changes and their migration steps, verification block, build and publish commands, rollback |
 | [release-v0.1.0.md](release-v0.1.0.md) | Historical record of the `v0.1.0` tag, with a banner listing its stale places; superseded by the release step |
 
 ## Planned outputs not produced as separate pages, and why
