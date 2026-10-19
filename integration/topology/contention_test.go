@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/netstar-labs/keystore/internal/ringfile"
 )
 
 // TestContention runs TOPO_WORKERS concurrent worker loops, each spawning real
@@ -162,6 +164,11 @@ func TestContention(t *testing.T) {
 				continue
 			}
 			g1 := gen.Load()
+			// `current` must always name an existing signing entry (the seed is never removed,
+			// so it can never be empty either).
+			if e := f.Find(f.Current); f.Current == "" || e == nil || e.Kind != ringfile.KindEd25519 {
+				fail("checker: current %q does not name a signing entry", f.Current)
+			}
 			found := -1
 			for cand := g0 - 1; cand <= g1+1; cand++ {
 				if cand >= 0 && unlocksWith(snap, "seed", pass(int(cand))) {

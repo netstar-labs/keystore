@@ -3,6 +3,7 @@
 package topology
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -18,19 +19,70 @@ import (
 	"github.com/netstar-labs/keystore/internal/ringfile"
 )
 
-// state is the model of a ring: which ids it holds, which is current and which
-// passphrase generation encrypts it.
+// rec is one entry as the model knows it. A nil pub or ct is a wildcard: the model cannot
+// predict the key or ciphertext of an entry that is about to be added.
+type rec struct {
+	id             string
+	pub, nonce, ct []byte
+}
+
+// state is the model of a ring: its entries in file order, which is current and which
+// passphrase generation encrypts it. reenc marks the expected state after a passwd, where
+// every entry keeps its id and public key but must have a new nonce and ciphertext.
 type state struct {
-	ids     []string // sorted
+	ents    []rec
 	current string
 	gen     int
+	reenc   bool
 }
 
-func (s state) equal(o state) bool {
-	return s.current == o.current && s.gen == o.gen && slices.Equal(s.ids, o.ids)
+func (s state) ids() []string {
+	out := make([]string, len(s.ents))
+	for i, e := range s.ents {
+		out[i] = e.id
+	}
+	return out
 }
 
-func (s state) String() string { return fmt.Sprintf("{%v current=%s gen=%d}", s.ids, s.current, s.gen) }
+func (s state) clone() state {
+	s.ents = slices.Clone(s.ents)
+	return s
+}
+
+func (s state) String() string {
+	return fmt.Sprintf("{%v current=%s gen=%d reenc=%v}", s.ids(), s.current, s.gen, s.reenc)
+}
+
+// fromFile records the ring as observed.
+func fromFile(f *ringfile.File, gen int) state {
+	s := state{current: f.Current, gen: gen}
+	for _, e := range f.Entries {
+		s.ents = append(s.ents, rec{e.ID, e.Pub, e.Nonce, e.CT})
+	}
+	return s
+}
+
+// matches reports whether the observed ring is exactly s: same entries in the same order,
+// same current, same passphrase generation, same public key for every entry the model
+// knows, and ciphertext byte-identical (or, after a passwd, all different).
+func (s state) matches(f *ringfile.File, gen int) bool {
+	if f.Current != s.current || gen != s.gen || len(f.Entries) != len(s.ents) {
+		return false
+	}
+	for i, e := range f.Entries {
+		m := s.ents[i]
+		if e.ID != m.id || (m.pub != nil && !bytes.Equal(e.Pub, m.pub)) {
+			return false
+		}
+		if m.ct != nil {
+			same := bytes.Equal(e.CT, m.ct) && bytes.Equal(e.Nonce, m.nonce)
+			if same == s.reenc {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // TestCrashLoop SIGKILLs a real writer at a random instant, TOPO_ITERS times in total
 // (split over TOPO_LANES independent rings run in parallel). After every kill the ring
@@ -112,22 +164,23 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 		fail("lane %d keygen: %s", lane, r.stderr)
 		return
 	}
-	model := state{ids: []string{"seed"}, current: "seed", gen: 0}
 	seq := 0
-	add := func(s state) (state, string) {
-		seq++
-		id := fmt.Sprintf("k%d", seq)
-		n := state{ids: append(slices.Clone(s.ids), id), current: s.current, gen: s.gen}
-		sort.Strings(n.ids)
-		return n, id
+	observe := func(gen int) state {
+		_, f, err := snapshot(t, ring, scratch)
+		if err != nil {
+			fail("lane %d: %v", lane, err)
+			return state{}
+		}
+		return fromFile(f, gen)
 	}
 	// Calibrate how long each op takes unmolested, so kill delays span the whole op.
 	calib := map[string]time.Duration{}
 	calibMin := map[string]time.Duration{}
+	gen := 0
 	for i := 0; i < 3; i++ {
-		var id string
-		model, id = add(model)
-		r := ks(home, pass(model.gen), "", "add", "-keystore", ring, "-id", id)
+		seq++
+		id := fmt.Sprintf("k%d", seq)
+		r := ks(home, pass(gen), "", "add", "-keystore", ring, "-id", id)
 		if !r.ok() {
 			fail("lane %d calibration add: %s", lane, r.stderr)
 			return
@@ -138,57 +191,59 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 		calib["use"] = max(calib["use"], r.dur)
 		calibMin["use"] = minNZ(calibMin["use"], r.dur)
 		r = ks(home, "", "", "use", "-keystore", ring, "-id", "seed")
-		r = ks(home, pass(model.gen), pass(model.gen+1), "passwd", "-keystore", ring)
+		r = ks(home, pass(gen), pass(gen+1), "passwd", "-keystore", ring)
 		if !r.ok() {
 			fail("lane %d calibration passwd: %s", lane, r.stderr)
 			return
 		}
-		model.gen++
+		gen++
 		calib["passwd"] = max(calib["passwd"], r.dur)
 		calibMin["passwd"] = minNZ(calibMin["passwd"], r.dur)
 	}
 	// calibration leaves current == seed; remove one entry to measure rm and shrink the ring
-	r := ks(home, "", "", "rm", "-keystore", ring, "-id", model.ids[1])
+	r := ks(home, "", "", "rm", "-keystore", ring, "-id", "k1")
 	calib["rm"], calibMin["rm"] = r.dur, r.dur
-	model.ids = slices.Delete(model.ids, 1, 2)
+	model := observe(gen)
+	if model.ents == nil {
+		return
+	}
 
 	for it := 0; it < iters; it++ {
 		// choose the op and its expected new state
 		var op string
 		var args []string
 		var env []string
-		var next state
+		next := model.clone()
 		pick := rng.IntN(100)
 		switch {
-		case pick < 35 && len(model.ids) < 6, len(model.ids) <= 2 && pick < 70:
-			var id string
-			next, id = add(model)
+		case pick < 35 && len(model.ents) < 6, len(model.ents) <= 2 && pick < 70:
+			seq++
+			id := fmt.Sprintf("k%d", seq)
+			next.ents = append(next.ents, rec{id: id})
 			op, args, env = "add", []string{"add", "-keystore", ring, "-id", id}, []string{"KEYSTORE_PASSPHRASE=" + pass(model.gen)}
-		case pick < 55 && len(model.ids) > 2:
-			var cand []string // never the seed, which is always current here (the probe sets it)
-			for _, c := range model.ids {
-				if c != "seed" && c != model.current {
-					cand = append(cand, c)
-				}
+		case pick < 55 && len(model.ents) > 2:
+			// Any entry but the seed, current or not. Removing the current entry moves current to
+			// the first remaining signing key, which is the seed (first in file order, never
+			// removed); removing another entry must leave current alone.
+			i := 1 + rng.IntN(len(model.ents)-1)
+			id := model.ents[i].id
+			next.ents = slices.Delete(next.ents, i, i+1)
+			if id == model.current {
+				next.current = "seed"
 			}
-			id := cand[rng.IntN(len(cand))]
-			next = state{ids: slices.DeleteFunc(slices.Clone(model.ids), func(s string) bool { return s == id }), current: model.current, gen: model.gen}
 			op, args = "rm", []string{"rm", "-keystore", ring, "-id", id}
 		case pick < 70:
-			other := model.ids[0]
-			if other == "seed" {
-				other = model.ids[1]
+			other := model.ents[rng.IntN(len(model.ents))].id
+			for other == model.current {
+				other = model.ents[rng.IntN(len(model.ents))].id
 			}
-			next = state{ids: model.ids, current: other, gen: model.gen}
+			next.current = other
 			op, args = "use", []string{"use", "-keystore", ring, "-id", other}
 		default:
-			next = state{ids: model.ids, current: model.current, gen: model.gen + 1}
+			next.gen = model.gen + 1
+			next.reenc = true
 			op, args = "passwd", []string{"passwd", "-keystore", ring}
 			env = []string{"KEYSTORE_PASSPHRASE=" + pass(model.gen), "KEYSTORE_NEW_PASSPHRASE=" + pass(model.gen+1)}
-		}
-		if !slices.Contains(next.ids, next.current) {
-			fail("lane %d: model bug", lane)
-			return
 		}
 
 		cmd := exec.Command(bin("keystore"), args...)
@@ -225,18 +280,19 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 			fail("lane %d it %d: after killing %s: %v", lane, it, op, err)
 			return
 		}
-		obs := state{ids: ids(f), current: f.Current, gen: -1}
+		obsGen := -1
 		for _, g := range []int{model.gen, next.gen} {
 			if unlocksWith(snap, "seed", pass(g)) {
-				obs.gen = g
+				obsGen = g
 				break
 			}
 		}
+		obs := fromFile(f, obsGen)
 		verdict := "?"
 		switch {
-		case obs.equal(model) && !next.equal(model):
+		case model.matches(f, obsGen):
 			verdict = "old"
-		case obs.equal(next):
+		case next.matches(f, obsGen):
 			verdict = "new"
 		default:
 			fail("lane %d it %d: after killing %s the ring is neither old nor new\n  old %v\n  new %v\n  got %v", lane, it, op, model, next, obs)
@@ -249,8 +305,8 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 			check = []ringfile.Entry{f.Entries[0], f.Entries[rng.IntN(len(f.Entries))]}
 		}
 		for _, e := range check {
-			if !unlocksWith(snap, e.ID, pass(obs.gen)) {
-				fail("lane %d it %d: entry %s does not unlock under gen %d after killing %s (property 5)", lane, it, e.ID, obs.gen, op)
+			if !unlocksWith(snap, e.ID, pass(obsGen)) {
+				fail("lane %d it %d: entry %s does not unlock under gen %d after killing %s (property 5)", lane, it, e.ID, obsGen, op)
 			}
 		}
 		os.Remove(snap)
@@ -273,12 +329,13 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 		model = obs
 
 		// ---- the lock must not be wedged: the next writer succeeds, promptly ----
-		pr := ks(home, "", "", "use", "-keystore", ring, "-id", "seed")
+		probeID := model.ents[rng.IntN(len(model.ents))].id
+		pr := ks(home, "", "", "use", "-keystore", ring, "-id", probeID)
 		if !pr.ok() || pr.dur > 3*time.Second {
 			fail("lane %d it %d: probe writer after killing %s: code=%d dur=%v %s (lock wedged?)", lane, it, op, pr.code, pr.dur, pr.stderr)
 			return
 		}
-		model.current = "seed"
+		model.current = probeID
 
 		k := op + "/" + verdict
 		if !killed {

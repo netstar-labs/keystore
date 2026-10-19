@@ -68,6 +68,8 @@ func TestFleet(t *testing.T) {
 		stop       = make(chan struct{})
 		oldAgentOK atomic.Int64 // A1 signatures obtained after k1 was removed from the ring
 		k1Removed  atomic.Bool
+		useEpoch   atomic.Int64 // odd while a `use` is in flight, so ring-direct signing has a settled "current"
+		curID      atomic.Value // id the ring's current pointer should name when useEpoch is even
 	)
 	bump := func(k string) { mu.Lock(); count[k]++; mu.Unlock() }
 	fail := func(f string, a ...any) { mu.Lock(); viol = append(viol, fmt.Sprintf(f, a...)); mu.Unlock() }
@@ -82,6 +84,8 @@ func TestFleet(t *testing.T) {
 				break
 			}
 		}
+		u1 := useEpoch.Load()
+		cur, _ := curID.Load().(string)
 		r := runEnv(append(cleanEnv(home), env...), msg, bin("keystore"), args...)
 		inflight.Add(-1)
 		if r.code != 0 {
@@ -113,6 +117,14 @@ func TestFleet(t *testing.T) {
 		if wantFP != "" && fp != wantFP {
 			fail("%s: signed under %s, want %s", kind, fp, wantFP)
 		}
+		// Ring-direct signing must use the ring's current key. While no `use` was in flight
+		// the expected current is known exactly, so name it; a signer that picked the first
+		// entry (or any other) while reporting its own fingerprint fails here.
+		if kind == "ring" && u1%2 == 0 && useEpoch.Load() == u1 {
+			if want := idFPof(&pubMu, idFP, cur); fp != want {
+				fail("ring: signed under %s but current is %s (%s)", fp, cur, want)
+			}
+		}
 		if !ed25519.Verify(pub, msg, sig) {
 			fail("%s: signature does not verify under the key it names (%s)", kind, fp)
 			return oOther
@@ -128,6 +140,7 @@ func TestFleet(t *testing.T) {
 		return oOK
 	}
 
+	curID.Store("k1")
 	a1 := startAgentRaw(ring, sock(1), home, pass(0), "-id", "k1")
 	if !a1.waitReady(sock(1)) {
 		t.Fatalf("agent 1: %s", a1.log.String())
@@ -193,7 +206,10 @@ func TestFleet(t *testing.T) {
 	time.Sleep(phase / 2)
 	rotate(0)
 	time.Sleep(phase / 2)
+	useEpoch.Add(1)
 	op("use k2", ks(home, "", "", "use", "-keystore", ring, "-id", "k2"))
+	curID.Store("k2")
+	useEpoch.Add(1)
 	a2 = startAgentRaw(ring, sock(2), home, pass(1), "-id", "k2")
 	if !a2.waitReady(sock(2)) {
 		t.Fatalf("agent 2: %s", a2.log.String())
@@ -207,7 +223,10 @@ func TestFleet(t *testing.T) {
 	op("add k3", ks(home, pass(1), "", "add", "-keystore", ring, "-id", "k3"))
 	a3pub = learn("k3")
 	rotate(1)
+	useEpoch.Add(1)
 	op("use k3", ks(home, "", "", "use", "-keystore", ring, "-id", "k3"))
+	curID.Store("k3")
+	useEpoch.Add(1)
 	a3 = startAgentRaw(ring, sock(3), home, pass(2), "-id", "k3")
 	if !a3.waitReady(sock(3)) {
 		t.Fatalf("agent 3: %s", a3.log.String())
