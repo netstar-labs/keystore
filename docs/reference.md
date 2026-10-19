@@ -162,7 +162,7 @@ sign up to 1 MiB from -in FILE or stdin with a ring key or an agent; prints a ba
 
 ## `verify`
 
-verify a signature over -in FILE or stdin with a public key PEM; no ring needed; exit 3 if it does not verify
+verify a signature over -in FILE or stdin with a public key PEM; no ring needed; exit 3 if a well-formed signature does not verify; 1 if the signature file or inputs cannot be read or parsed
 
 | Flag | Meaning | Default |
 |---|---|---|

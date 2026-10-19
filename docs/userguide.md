@@ -130,7 +130,7 @@ is unlocked.
 ```sh
 keystore sign   -keystore prod.ks -in msg > msg.sig            # unlocks the current key
 keystore sign   -agent /run/user/1000/keystore/agent.sock -in msg > msg.sig   # no passphrase
-keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid, 3 = does not verify
+keystore verify -pub prod.pub -sig msg.sig -in msg              # exit 0 = valid, 3 = does not verify, 1 = could not check
 ```
 
 Signatures are pure Ed25519, written as base64 (or 64 raw bytes with `-raw`). Messages are
@@ -221,8 +221,9 @@ usage text first and the error last.
 ## Exit status
 
 `0` success (and `-h`/`help`); `1` failure (a missing file, a wrong passphrase, a refused
-operation); `2` usage error; `3` a signature that does not verify (`verify`), so a script can tell a
-bad signature from a check that could not be made; `130` interrupted at a prompt. These are the
+operation); `2` usage error; `3` a well-formed signature that does not verify (`verify`), so a script can tell a
+bad signature from a check that could not be made (an unreadable or malformed signature file,
+a missing input or key file, is `1`); `130` interrupted at a prompt. These are the
 `keystore` verbs' codes. `keystore-agent` exits 0 on a clean stop (signal or `-ttl`/`-idle` expiry,
 and `-h`) and 1 on everything else, flag errors included (it has no exit 2).
 

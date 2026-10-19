@@ -603,10 +603,13 @@ func TestNoRingPathWithoutHomeIsAUsageErrorNotACwdRing(t *testing.T) {
 }
 
 // A script author reading only `verify -h` or the generated reference must learn that a
-// signature that does not verify is exit 3 (not the generic failure 1).
+// well-formed signature that does not verify is exit 3, and that a signature file that cannot
+// be parsed is the generic failure 1 (a deliberate split, pinned by the exit-code tests).
 func TestVerifyHelpStatesExitThree(t *testing.T) {
 	_, errOut, _ := cli(t, "verify", "-h")
-	if !strings.Contains(errOut, "exit 3") {
-		t.Errorf("verify -h does not mention exit 3:\n%s", errOut)
+	for _, want := range []string{"exit 3 if a well-formed signature does not verify", "1 if the signature file or inputs cannot be read or parsed"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("verify -h does not say %q:\n%s", want, errOut)
+		}
 	}
 }

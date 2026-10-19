@@ -29,7 +29,8 @@ func main() {
 }
 
 // Exit statuses. A signature that does not verify has its own code so automation can tell
-// "this is bad" from "could not check" (a missing file, an unreadable key).
+// "this is bad" from "could not check" (a missing file, an unreadable key, a signature file
+// that is not a signature at all: only a well-formed signature that fails is "bad").
 const (
 	exitFailure      = 1
 	exitUsage        = 2
