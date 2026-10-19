@@ -65,3 +65,16 @@ Connection-count cap (W2-3-1, REFUTED as a defect); core-dump hardening (W2-3-3,
 core by default); the library `Server` retaining the signer after `Close` (W2-3-4); idle timer reset by `P`
 (W2-3-I, documented behaviour); a foreign `<ring>.lock` (W2-4-2, downgraded: an attacker can equally block
 via the ring path).
+
+## L4 pre-flight (diff-scoped re-audit of the 21 production files changed since `v0.1.0`)
+
+0 high, 0 medium, 4 low (all fixed, each with a skeptic), 9 info [R: local audit report]. The crypto core was byte-identical to the tag.
+
+| Id | Sev | Defect | Fix (merge) |
+|---|---|---|---|
+| L4-L1 | LOW | Stopping the agent unlinked a file that replaced its socket (and a `-race` data race between `socketLost` and an embedder's `ln.Close`) | `Listener.Close` decides unlink-or-not from `intact()` inside its once-body (8d45831) |
+| L4-L2 | LOW | A relative socket path plus a later `chdir` made the lost-socket check look in the wrong place | `Listen` uses the absolute path (446f79b, decisions row 47) |
+| L4-L3 | LOW | `build/keystore --release` accepted an untagged HEAD (archive named `v0.1.0-170-g039ed2f`) | release requires an exact tag (93dcbb3, decisions row 46) |
+| L4-L4 | LOW | A hostile same-uid peer could make the client print a 1 MiB error status | client keeps 256 bytes (908a08f) |
+| L4-I1 | INFO | `verify` exits 1, not 3, for a malformed signature file: deliberate (tests pin it); wording clarified | summary, userguide, decisions row 45 (9880179) |
+
