@@ -14,7 +14,7 @@ import (
 
 // These benchmarks drive run(...) in-process at the MINIMUM KDF cost (set explicitly
 // here and restored, so they do not depend on TestMain). The numbers are therefore NOT
-// production latencies: at the shipped cost every unlock is ~140 ms, which these
+// production latencies: at the shipped cost every unlock is on the order of 140 ms (one light-load sample on an M1 Pro), which these
 // numbers omit. They measure everything else (flag parsing, ring I/O, signing, output).
 // The one real-cost end-to-end figure is recorded in docs/audits/benchmark-baselines.md.
 func lowCost(b *testing.B) {

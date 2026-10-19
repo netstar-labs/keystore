@@ -154,8 +154,9 @@ func BenchmarkAdd(b *testing.B) {
 	for _, c := range benchCosts {
 		b.Run(c.name, func(b *testing.B) {
 			withCost(b, c.cost)
-			template(b, 1)
+			template(b, 1) // built once, untimed
 			b.ReportAllocs()
+			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				b.StopTimer()
 				k := fresh(b, 1)

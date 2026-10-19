@@ -67,8 +67,10 @@ func BenchmarkParse(b *testing.B) {
 }
 
 // BenchmarkParseHostileEmptyObjects is a 1 MiB array of "{}": the shape that made the
-// old decode allocate a struct per element before validating any. It must fail at the
-// first element, so B/op here stays tiny and independent of the input size.
+// old decode allocate a struct per element before validating any. B/op is about 4x the
+// input and grows linearly with it (the json decoder buffers the top-level value); what
+// the benchmark guards is allocB/inB, which stays at about 4.0. The old whole-array
+// decode measured roughly 300 to 380 on this input.
 func BenchmarkParseHostileEmptyObjects(b *testing.B) {
 	n := (1 << 20) / 3
 	body := make([]byte, 0, 3*n+64)
