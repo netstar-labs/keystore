@@ -11,6 +11,7 @@ Recorded for the L2 benchmark phase. All benchmarks live in new `bench_test.go` 
   Derive and agent sign repeated within 1% between runs; Marshal varied 3% to 5% and
   allocs/op by 1 to 3 between runs (a skeptic's remeasurement agrees). Use a tolerance
   (see the 20% rule below). They agree across macOS and Linux to within a few percent.
+* **Main has moved on since (963ab93 adds fuzz and harness tests and small ringfile, kdf and cmd changes); none of the other tables were re-measured after it.**
 * **The agent rows were re-recorded after rebasing onto main 58408dc**, which includes the
   incremental `readFrame` (fix L1-readframe-incremental). Every other package's tables
   were recorded on the earlier base; the later main commits did not touch the code those
@@ -388,7 +389,7 @@ named in each row.
 | the exact mutant shown below: `UnmarshalJSON` first appends every decoded `wireEntry` to a slice, then validates in a second loop | `ringfile.ParseHostileEmptyObjects` | 4.00 allocB/inB, 4.2 MB/op, 46 to 48 allocs/op | **378.6 allocB/inB, 397 MB/op, 349,665 to 349,679 allocs/op** (re-run on main 58408dc) |
 | same (earlier base) | `ringfile.Parse/entries=1000` | 5.22 allocB/inB, 2.33 MB/op | 6.59 allocB/inB, 2.94 MB/op (moves only slightly; the hostile benchmark is the real guard) |
 | one 4 KiB allocation added per sign in `Server.handle` (main 58408dc) | `agent.SignViaAgent/64B/clients=1` | 3.2 KiB/op, 37 allocs | **7.35 to 7.38 KiB/op, 38 allocs** (time noise-dominated: 300 to 388 us before, 349 to 446 us after) |
-| `time.Sleep(2ms)` per sign in `Server.handle` (main 58408dc) | `agent.SignViaAgent/64B/clients=1` | 300 to 388 us/op | **3.99 to 4.32 ms/op** (the sleep rounds up on this OS) |
+| `time.Sleep(2ms)` per sign in `Server.handle` (main 58408dc) | `agent.SignViaAgent/64B/clients=1` | 300 to 388 us/op | **3.99 to 4.32 ms/op** (measured under load; an earlier run of the same sleep gave 2.7 to 3.4 ms, so treat the magnitude as load-dependent) |
 | one extra argon2 pass (`Time+1`) in `Params.Derive` (earlier base) | `kdf.Derive/minimum` | 21.8 to 26.1 ms/op, 15 allocs | **55.4 to 64.7 ms/op, 23 allocs** |
 | same (earlier base) | `kdf.Derive/production` | 737 to 874 ms/op, 32 allocs | **965 ms to 1.27 s/op, 41 allocs** (loaded; ratio inflated by contention) |
 
