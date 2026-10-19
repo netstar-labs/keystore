@@ -14,3 +14,5 @@
 
 Regenerate only on a deliberate format change:
 `go test ./pkg/keystore -run TestGolden -args -update`.
+
+Every value above is published test material (the passphrase, the seed and secret bytes, the RFC 8032-style keys in the fixtures), not a credential for anything.
