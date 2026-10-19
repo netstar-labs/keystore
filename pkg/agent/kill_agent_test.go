@@ -68,7 +68,8 @@ func scripted(pub, sig []byte) func(net.Conn) {
 func expectEOF(t *testing.T, c net.Conn, what string) {
 	t.Helper()
 	c.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if n, err := c.Read(make([]byte, 1)); err != io.EOF {
+	// Linux resets (ECONNRESET) rather than FINs a socket closed with unread data; both mean closed.
+	if n, err := c.Read(make([]byte, 1)); err != io.EOF && !errors.Is(err, syscall.ECONNRESET) {
 		t.Fatalf("%s: read = %d bytes, %v; want the connection closed (EOF)", what, n, err)
 	}
 }
@@ -314,6 +315,21 @@ func TestPeerLookupErrorIsRefusedEvenWithOurUID(t *testing.T) {
 	}
 }
 
+// Any peer uid other than ours is refused, higher or lower (root is 0, below a normal uid).
+func TestPeerWithAnyOtherUIDIsRefused(t *testing.T) {
+	for name, uid := range map[string]int{"lower": os.Getuid() - 1, "higher": os.Getuid() + 1, "root": 0} {
+		if uid == os.Getuid() {
+			continue
+		}
+		r := start(t, func(s *Server) {
+			s.uidOf = func(*net.UnixConn) (int, error) { return uid, nil }
+		})
+		if _, err := Dial(r.sock); err == nil {
+			t.Errorf("agent served a peer with %s uid %d (own %d)", name, uid, os.Getuid())
+		}
+	}
+}
+
 // If the accept loop meets a connection while the server is already stopping, that
 // connection is closed, not served: the key must not answer after Close.
 func TestConnectionAcceptedDuringShutdownIsClosed(t *testing.T) {
@@ -345,7 +361,7 @@ func TestConnectionAcceptedDuringShutdownIsClosed(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()
-	writeFrame(client, OpPublic, nil)
+	// No request is sent: closing a socket with unread data resets it on Linux (ECONNRESET).
 	expectEOF(t, client, "connection accepted during shutdown")
 	select {
 	case err := <-done:

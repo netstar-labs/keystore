@@ -1,34 +1,40 @@
 # Mutation hardening of the security tests (L2 phase 4)
 
-Branch `test/L2-mutation-hardening`, cut from `main` (29e9973). Production code is unchanged on
-this branch; every change is a `_test.go` file. Defects found on the way are on separate
-branches (see "Defects").
+Branch `test/L2-mutation-hardening`, rebased onto `main` (c96216b). Production code is unchanged on
+this branch; every change is a `_test.go` file. The defect found on the way is already
+fixed on main (see "Defects").
 
 ## Result
 
-409 hand-written mutants over the security-critical code. Each is one textual change to one
+417 hand-written mutants (409 plus 8 added after review: M410-M417) over the security-critical code. Each is one textual change to one
 production file (off-by-one, flipped or dropped check, swapped argument, removed error return,
 changed constant, removed `clear()`, removed fsync/rename/lock, ...). Mutation score is
 detected / (detected + survived); a mutant that fails to build is re-written, never counted.
 
 | | Detected | Survived | Score |
 |---|---|---|---|
-| Before (existing suite) | 261 | 148 | 63.8% |
-| After (this branch) | 370 | 39 | 90.5% |
+| Before (existing suite) | 263 | 154 | 63.1% |
+| After (this branch) | 379 | 38 | 90.9% |
 
-109 mutants that survived the old suite now die. Of the 39 that remain:
+116 mutants that survived the old suite now die. Of the 38 that remain:
 
-* 16 are equivalent (no observable behaviour differs; reason per mutant below);
+* 15 are equivalent (no observable behaviour differs; reason per mutant below);
 * 12 are unobservable by black-box tests: `clear()` of local buffers (memory hygiene) and one
   timing-only comparison of public data;
-* 11 are real, accepted gaps that need an injection seam or a privileged/other-uid environment
-  (fsync and directory-fsync removal, O_EXCL/O_NOFOLLOW races, write-failure and EINTR paths, the
-  client's peer-uid check, passfile ownership, the keychain-set echo).
+* 10 are real, accepted gaps that need an injection seam or a second uid (fsync and
+  directory-fsync removal, O_EXCL/O_NOFOLLOW races, write-failure and EINTR paths, the client's
+  peer-uid check, the keychain-set echo);
+* 1 needs root: the passfile owner check. `TestPassfileMustBeOwnedByTheCaller` skips unless
+  root and passes (and kills the mutant) when run as root in a Linux container; it is not seam-bound.
 
-Score excluding the equivalent mutants: 97.1%. Excluding equivalent, unobservable and
-seam-bound: 100.0%. 7 mutants are detected only because the suite hangs until
-`go test` times out (flock without `LOCK_NB`, no lock deadline, Close-before-Serve ignored,
-connections not closed on expiry, ...): a hang is a failure, but a slow one.
+Score excluding only the equivalent mutants: 94.3%. Excluding equivalent and unobservable:
+97.2%. Excluding equivalent, unobservable, seam-bound and root-only: 100.0%.
+
+7 mutants are detected only because the suite hangs until `go test` times out (flock
+without `LOCK_NB`, no lock deadline, Close-before-Serve ignored, connections not closed on expiry,
+...). The runner used a 150 s timeout; at the default 10 minute `go test` timeout a regression such
+as M124 (blocking flock) or M219 (Close-before-Serve ignored) would hang the suite for about 10
+minutes before failing.
 
 ## Method
 
@@ -96,10 +102,10 @@ Real gaps found in the old suite, by area (new tests in `kill_*_test.go`, plus `
 
 None found by a survivor (no mutant showed code that was wrong). Found while writing tests:
 
-1. `Keystore.Signer` and `agent.ResolveSigner` return a non-nil `crypto.Signer` holding a nil value
+1. `Keystore.Signer` and `agent.ResolveSigner` returned a non-nil `crypto.Signer` holding a nil value
    together with the error (`return k.ExportPrivate(...)` / `return Dial(...)` convert a typed nil).
-   A caller that tests the interface instead of `err` proceeds with a nil key. Fix with its own red
-   test on branch `fix/L2-signer-typed-nil`.
+   A caller that tests the interface instead of `err` would proceed with a nil key. Fixed with its
+   own red test (merged to main as `fix/L2-signer-typed-nil`).
 2. Doc nit, not fixed: `term.Clean` documents invalid UTF-8 as replaced by a space; it comes out as
    U+FFFD (printable, one per bad byte). Harmless for the terminal-safety goal; the new test pins
    the real behaviour.
@@ -123,7 +129,8 @@ None found by a survivor (no mutant showed code that was wrong). Found while wri
    Live: M001-M013 (each AAD field omitted or reordered), M067-M092, M179-M181.
 3. **A crash leaves the old or the new ring; the new one is durable when the command returns.**
    Atomicity is guarded by `TestSaveCrashSafety` (stages written/synced/renamed),
-   `TestCreateNeverReplaces`, `TestSaveMode0600EvenOverWiderFile`, `TestNoDescriptorLeak`.
+   `TestCreateNeverReplaces`, `TestSaveMode0600EvenOverWiderFile`, `TestRingModeIs0600UnderAnyUmask`,
+   `TestSaveReplacesTheFileInsteadOfRewritingIt`, `TestNoDescriptorLeak`.
    **Durability (fsync of the temp file and of the directory) has no guarding test**: M106, M119,
    M121 survive. FLAG. It needs a seam (for example a package variable wrapping the file and
    directory sync) so a test can record or fail the calls; none was added because production code is
@@ -140,7 +147,7 @@ None found by a survivor (no mutant showed code that was wrong). Found while wri
    others can read.** Guards: `TestNoVerbHasAPassphraseFlag`, `TestExportPrivRefusesTerminal`,
    `TestExportRefusesRedirectToAFileOthersCanRead`, `TestExportPrivFileRules`,
    `TestExportSecretGuards`, `TestWriteFileModeIsExactAcrossForce`,
-   `TestWriteFileRefusesSymlinksAndSpecialFiles`, `TestSignAndExportOutputModes`, `TestPassfile*`,
+   `TestWriteFileRefusesSymlinksAndSpecialFiles`, `TestSignAndExportOutputModes`, `TestExportPrivRefusesTheTerminalBeforePromptingForThePassphrase`, `TestPasswdSamePassphraseCheckComparesValues`, `TestPassfile*`,
    `TestArgsNeverCarryTheSecret` (macOS only). Live: M321-M356. Gap: the `keychain-set` echo (M371).
 7. **A crafted ring cannot cause an unbounded allocation or a zero-cost KDF.** Guards:
    `TestCheckBounds`, `TestBoundsArePinnedToTheDocumentedNumbers`,
@@ -161,8 +168,15 @@ Only property 3's durability half has no guarding test.
 * The runner ran under heavy machine load (load average above 60 at times); a flaky test would show
   as a spurious kill. Kill reasons were read, and every new test passes `-race -count=20` (the
   cmd/keystore-agent tests, which start real agents, took 22 minutes of that).
-* `TestPassfileMustBeOwnedByTheCaller` needs root and was **not executed** (it skips).
+* Linux: all new tests (and the whole suite) were also run as cross-compiled test binaries
+  (`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c`) in an Apple container (alpine) as uid 0 and
+  as uid 1000, `-test.count=5`: all pass. That found one macOS/Linux difference, fixed:
+  closing a socket with unread data sends RST on Linux, so a read returns ECONNRESET, not EOF
+  (`expectEOF` accepts both, and the shutdown test no longer writes a request first).
+  `TestPassfileMustBeOwnedByTheCaller` skips unless root; it ran (and passed) as root there.
   `TestSocketDirMustBeOwnedByTheCaller` skips if `/` is owned by the caller.
+* `TestSignalsStopTheAgentCleanly/SIGHUP` (existing, on main) is skipped when the test process
+  inherits SIGHUP as ignored (nohup, some CI); fixed in its own commit.
 * `TestOpenOrCreateRace` kills its mutant probabilistically (32 goroutines x 25 rounds); the
   original never fails it.
 
@@ -174,7 +188,6 @@ Only property 3's durability half has no guarding test.
 | M093 | `internal/ringfile/ringfile.go` | trailing data accepted | equivalent | redundant layer: json.Unmarshal in the magic peek already rejects trailing data |
 | M094 | `internal/ringfile/ringfile.go` | peek error ignored | equivalent | redundant layer: an empty peeked magic fails the Magic comparison anyway |
 | M106 | `internal/ringfile/ringfile.go` | Create: skip dir sync | untestable without a seam | durability: removing the directory fsync cannot be seen without fault/syscall injection |
-| M116 | `internal/ringfile/ringfile.go` | temp: drop chmod (CreateTemp is already 0600) | equivalent | os.CreateTemp already creates 0600 regardless of umask |
 | M119 | `internal/ringfile/ringfile.go` | temp: skip fsync | untestable without a seam | durability: removing the temp-file fsync cannot be seen without fault/syscall injection |
 | M121 | `internal/ringfile/ringfile.go` | syncDir: skip fsync | untestable without a seam | durability: removing the directory fsync cannot be seen without fault/syscall injection |
 | M126 | `internal/ringfile/ringfile.go` | release: no explicit unlock (close releases) | equivalent | closing the descriptor releases the flock |
@@ -197,7 +210,7 @@ Only property 3's durability half has no guarding test.
 | M254 | `pkg/agent/client.go` | client: peer-uid lookup error ignored | equivalent | peerUID returns -1 with its error, which never equals our uid, so the error check is redundant |
 | M255 | `pkg/agent/client.go` | client: peer uid never compared | untestable without a seam | client uid check: needs a server running as another uid (root); peercred.UID is not injectable |
 | M258 | `pkg/agent/client.go` | Sign: length unchecked (Verify rejects bad length) | equivalent | ed25519.Verify itself rejects a wrong-length signature |
-| M300 | `internal/passphrase/passphrase.go` | passfile: owner unchecked | untestable without a seam | passfile owner check: needs root to make a foreign-owned 0600 passfile; TestPassfileMustBeOwnedByTheCaller exists and is skipped when unprivileged |
+| M300 | `internal/passphrase/passphrase.go` | passfile: owner unchecked | needs root | passfile owner check: TestPassfileMustBeOwnedByTheCaller needs root and skips otherwise; it passes, and kills this mutant, when run as root in a Linux container (uid 0) |
 | M323 | `cmd/keystore/output.go` | guard: nil outFile (tests) -> nil deref | equivalent | os.File methods are nil-safe, so a nil outFile is treated as 'cannot stat' |
 | M335 | `cmd/keystore/output.go` | writeNew: no O_EXCL (Lstat precheck covers non-racy case) | untestable without a seam | O_EXCL / O_NOFOLLOW only differ if the path changes between Lstat and open (a race window, no hook) |
 | M336 | `cmd/keystore/output.go` | writeNew: no O_NOFOLLOW (Lstat precheck covers non-racy case) | untestable without a seam | O_EXCL / O_NOFOLLOW only differ if the path changes between Lstat and open (a race window, no hook) |
@@ -332,7 +345,7 @@ Only property 3's durability half has no guarding test.
 | M113 | `internal/ringfile/ringfile.go` | Save: drop synced stage | KILLED | KILLED* |
 | M114 | `internal/ringfile/ringfile.go` | Save: leave temp on abort | KILLED | KILLED* |
 | M115 | `internal/ringfile/ringfile.go` | temp file mode 0644 | KILLED | KILLED* |
-| M116 | `internal/ringfile/ringfile.go` | temp: drop chmod (CreateTemp is already 0600) (EQ expected) | SURVIVED | SURVIVED |
+| M116 | `internal/ringfile/ringfile.go` | temp: drop chmod (CreateTemp is already 0600) (EQ expected) | SURVIVED | KILLED |
 | M117 | `internal/ringfile/ringfile.go` | temp: truncated write | KILLED | KILLED* |
 | M118 | `internal/ringfile/ringfile.go` | temp: drop written stage | KILLED | KILLED* |
 | M119 | `internal/ringfile/ringfile.go` | temp: skip fsync | SURVIVED | SURVIVED |
@@ -626,3 +639,11 @@ Only property 3's durability half has no guarding test.
 | M407 | `cmd/keystore-agent/main.go` | agent: no Log wiring | SURVIVED | KILLED |
 | M408 | `cmd/keystore-agent/main.go` | agent: default ttl unlimited | SURVIVED | KILLED |
 | M409 | `cmd/keystore-agent/main.go` | agent: default idle unlimited | SURVIVED | KILLED |
+| M410 | `internal/ringfile/ringfile.go` | N09b Save: rewrite in place instead of temp+rename | KILLED | KILLED |
+| M411 | `cmd/keystore/secrets.go` | N04 passwd: same-passphrase check compares length only | SURVIVED | KILLED |
+| M412 | `pkg/agent/server.go` | N06 server: peer uid refused only if higher than ours | SURVIVED | KILLED |
+| M413 | `cmd/keystore/sign.go` | N11 readMessage: only the first 32 bytes are covered | SURVIVED | KILLED |
+| M414 | `pkg/keystore/ring.go` | N15 Remove: deletes every entry up to the named one | KILLED | KILLED |
+| M415 | `internal/kdf/kdf.go` | N03 New: only 2 salt bytes random | SURVIVED | KILLED |
+| M416 | `cmd/keystore/verbs.go` | N13 export-priv: terminal guard after the passphrase read | SURVIVED | KILLED |
+| M417 | `cmd/keystore/secrets.go` | N13 export-secret: terminal guard after the passphrase read | SURVIVED | KILLED |
