@@ -717,3 +717,68 @@ func TestCloseRacingTheSocketCheckIsACleanStop(t *testing.T) {
 		ln.Close()
 	}
 }
+
+// An embedder may Listen on a relative path and change directory later. The loss check
+// used to Lstat the stored relative path from the new directory, so a healthy agent
+// reported its socket "removed or replaced", stopped, and left the socket on disk.
+func TestRelativeSocketPathSurvivesAChdir(t *testing.T) {
+	dir := sockDir(t)
+	t.Chdir(dir)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	srv, err := NewServer(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.checkEvery = 10 * time.Millisecond
+	ln, err := Listen("rel.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(ln) }()
+	defer srv.Close()
+	t.Chdir(sockDir(t)) // anywhere else
+	select {
+	case err := <-done:
+		t.Fatalf("Serve stopped after a chdir: %v", err)
+	case <-time.After(300 * time.Millisecond): // thirty checks
+	}
+	if _, err := Dial(filepath.Join(dir, "rel.sock")); err != nil {
+		t.Fatalf("the agent is not reachable after a chdir: %v", err)
+	}
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Serve after Close = %v, want nil", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "rel.sock")); !os.IsNotExist(err) {
+		t.Errorf("the socket was not removed on Close: %v", err)
+	}
+}
+
+// The socket is bound by its absolute path (UnixListener unlinks by the name bound, so a
+// relative one would miss after a chdir), hence sun_path's limit applies to the absolute
+// form: a relative name that makes it exactly 103 bytes binds, one more is refused with the
+// limit named, and no lock file is left behind.
+func TestListenLengthLimitAppliesToTheAbsolutePath(t *testing.T) {
+	max := len(syscall.RawSockaddrUnix{}.Path) - 1
+	dir := sockDir(t)
+	t.Chdir(dir)
+	if abs, _ := filepath.Abs("x"); len(abs) != len(dir)+2 { // /tmp is a symlink on macOS: Getwd must not resolve it
+		t.Fatalf("test setup: Abs(x) = %q for dir %q", abs, dir)
+	}
+	ln, err := Listen(strings.Repeat("s", max-len(dir)-1))
+	if err != nil {
+		t.Fatalf("a relative path whose absolute form is exactly %d bytes was refused: %v", max, err)
+	}
+	ln.Close()
+	os.Remove(strings.Repeat("s", max-len(dir)-1) + ".lock")
+	_, err = Listen(strings.Repeat("s", max-len(dir)))
+	if err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Errorf("a relative path whose absolute form is %d bytes: err = %v, want the limit error", max+1, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("rejected path left files behind: %v", left)
+	}
+}
