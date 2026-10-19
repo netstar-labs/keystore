@@ -53,6 +53,8 @@ type Server struct {
 	checkEvery time.Duration                          // how often the socket path is checked; tests shorten it
 	uidOf      func(*net.UnixConn) (int, error)       // peer uid lookup; tests replace it
 	accept     func(*Listener) (*net.UnixConn, error) // tests inject accept errors
+	// afterFunc arms the TTL and idle timers; tests replace it with a fake clock.
+	afterFunc func(time.Duration, func()) timer
 
 	mu      sync.Mutex
 	ln      *Listener
@@ -70,7 +72,14 @@ func NewServer(signer crypto.Signer) (*Server, error) {
 		return nil, errors.New("keystore agent: signer is not ed25519")
 	}
 	return &Server{signer: signer, pub: pub, IOTimeout: 5 * time.Second, uidOf: peercred.UID,
-		accept: (*Listener).AcceptUnix, checkEvery: 10 * time.Second}, nil
+		accept: (*Listener).AcceptUnix, checkEvery: 10 * time.Second,
+		afterFunc: func(d time.Duration, f func()) timer { return time.AfterFunc(d, f) }}, nil
+}
+
+// timer is the part of *time.Timer that watch uses.
+type timer interface {
+	Reset(time.Duration) bool
+	Stop() bool
 }
 
 // Listener is an agent socket plus the exclusive lock that owns its path.
@@ -264,17 +273,13 @@ func (s *Server) Serve(ln *Listener) error {
 
 // watch enforces TTL and Idle by closing the listener.
 func (s *Server) watch(stop <-chan struct{}) {
-	var ttl, idle <-chan time.Time
 	if s.TTL > 0 {
-		t := time.NewTimer(s.TTL)
-		defer t.Stop()
-		ttl = t.C
+		defer s.afterFunc(s.TTL, s.expire).Stop()
 	}
-	var idleT *time.Timer
+	var idleT timer
 	if s.Idle > 0 {
-		idleT = time.NewTimer(s.Idle)
+		idleT = s.afterFunc(s.Idle, s.expire)
 		defer idleT.Stop()
-		idle = idleT.C
 	}
 	every := s.checkEvery
 	if every <= 0 {
@@ -282,7 +287,7 @@ func (s *Server) watch(stop <-chan struct{}) {
 	}
 	tick := time.NewTicker(every)
 	defer tick.Stop()
-	for {
+	for { // expire runs on the timers' own goroutines; this loop feeds idle resets and checks the socket
 		select {
 		case <-stop:
 			return
@@ -295,12 +300,6 @@ func (s *Server) watch(stop <-chan struct{}) {
 			if idleT != nil {
 				idleT.Reset(s.Idle)
 			}
-		case <-ttl:
-			s.expire()
-			return
-		case <-idle:
-			s.expire()
-			return
 		}
 	}
 }

@@ -6,7 +6,8 @@ import (
 	"os/exec"
 )
 
-const security = "/usr/bin/security"
+// security is a variable only so tests can point it at a shim; nothing else assigns it.
+var security = "/usr/bin/security"
 
 // Get returns the passphrase stored for service.
 func Get(service string) ([]byte, error) {
