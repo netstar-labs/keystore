@@ -108,3 +108,10 @@ marked.
 
 **Not done by the audit:** tagging, release notes, SBOM refresh, pushing, repository metadata, deleting
 branches, any real systemd or launchd start, the macOS cross-uid run, an amd64 run.
+
+## Open after publication (2026-10-19)
+
+- **Organization Actions secrets** (`GO_MODULES_TOKEN`, `NETSTAR_APP_PRIVATE_KEY`, `NETSTAR_GOMOD_TOKEN`) are visible to this repository; their visibility could not be read, so whether the now-public repository inherits them is unverified. No workflow uses them. Owner: set them to "Selected repositories" without keystore.
+- **Branch protection on `main`** is not applied (see the publish log, item 15).
+- **O9**, the `go install` version stamp.
+

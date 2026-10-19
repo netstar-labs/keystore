@@ -198,3 +198,34 @@ unless marked.
 8. **Not done, by design:** the `LICENSE` file (Apache-2.0, "NetSTAR Global, Inc.", decisions row 2) and the
    visibility flip; the private-name screen must be re-run first (tracked files and commit messages were clean at
    `87189fa`; issues and pull requests do not exist yet).
+
+### v0.2.1 and going public (2026-10-19, owner's instruction "push public, tag latest, add topics and description")
+
+9. **LICENSE (decisions row 48):** Apache-2.0, canonical GitHub text with only the appendix copyright line filled in
+   (`Copyright 2026 NetSTAR Global, Inc.`), a README License section, and the SBOM now declares the project license.
+10. **Public-readiness review** by an independent reviewer on a fresh clone of the remote before the flip: private-name
+    screen of all tracked files, the full history, commit and tag messages, the release body and `strings` of every binary
+    (only generic words and the accepted residue: "handbook" in two removed historical lines); no secrets or personal data
+    (the only commit identity is the GitHub noreply address; the private-key text in history is RFC 8032 and golden test
+    material); LICENSE text diff against GitHub's canonical body. Verdict clear to flip, with conditions: check the three
+    organization-level Actions secrets' visibility (not readable by the assistant: 403; **open, owner**), and enable private
+    vulnerability reporting immediately after the flip.
+11. **v0.2.1:** `v0.2.1` annotated on `c0f2b10` (CI green; no Go change since `v0.2.0`: `git diff v0.2.0 v0.2.1 -- '*.go'`
+    is empty), `build/keystore --release` (four archives, `SHA256SUMS` verified; each archive now contains `LICENSE` and an
+    SBOM declaring Apache-2.0), `gh release create v0.2.1 --latest`. `v0.2.0` was marked superseded in its notes and is no
+    longer latest (its archives lack the LICENSE).
+12. **Visibility:** `gh repo edit --visibility public`. Immediately after: private vulnerability reporting enabled
+    (`enabled: true`), workflow token read-only with `can_approve_pull_request_reviews=false`, fork-PR approval policy
+    `all_external_contributors`.
+13. **Checked as a stranger** [V]: the repository page and the release asset return 200; `git ls-remote` over https without
+    credentials lists `main`, `v0.2.0` and `v0.2.1`; GitHub detects Apache-2.0; `go install
+    github.com/netstar-labs/keystore/cmd/keystore@v0.2.1` succeeds through `proxy.golang.org` from an empty GOPATH with no
+    private-module settings.
+14. **Repository metadata:** topics `cryptography ed25519 go golang keyring library platform security` (`platform` family
+    and `library` role per the organization's topic vocabulary; the earlier `cli` topic was removed because it is a role
+    topic and a repository carries exactly one), homepage `https://pkg.go.dev/github.com/netstar-labs/keystore`, and a
+    row in the organization's repository inventory (O6).
+15. **Not done:** branch protection or rulesets on `main` (none applies today: 0 rules; the house recipe requires status
+    checks with no bypass, which would block direct pushes: **open, owner**); restricting the organization secrets to selected
+    repositories (**open, owner**); the optional `go install` version stamp (O9).
+
