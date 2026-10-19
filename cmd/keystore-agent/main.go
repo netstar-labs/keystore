@@ -105,7 +105,9 @@ func run(args []string) error {
 		return err
 	}
 	srv.TTL, srv.Idle = *ttl, *idle
-	srv.Log = log.Printf
+	// pkg/agent logs the socket path and OS errors that quote paths; it cannot know they are
+	// operator-supplied, so every line is cleaned here, at the sink.
+	srv.Log = func(format string, args ...any) { log.Print(term.Clean(fmt.Sprintf(format, args...))) }
 	ln, err := agent.Listen(sockPath)
 	if err != nil {
 		return err
