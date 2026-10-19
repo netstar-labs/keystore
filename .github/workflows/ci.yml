@@ -38,7 +38,7 @@ jobs:
           out=$(systemd-analyze verify --user examples/agent-service/keystore-agent.service 2>&1) || { echo "$out"; exit 1; }
           if grep -Eqi 'unknown (key|section)|failed to parse|ignoring' <<<"$out"; then echo "$out"; exit 1; fi
 
-  # macOS: LOCAL_PEERCRED, the keychain lookup, and the launchd plist.
+  # macOS: LOCAL_PEERCRED, the keychain argv (through a shim: nothing runs the real security(1)), and the launchd plist.
   ci-macos:
     runs-on: macos-latest
     steps:
