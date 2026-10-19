@@ -212,6 +212,23 @@ func TestHelpFlagsExitZeroWithUsageOnly(t *testing.T) {
 	}
 }
 
+// -h is the only parse error that is not a failure: an unknown flag still exits 1 with the
+// usage and the (cleaned) flag error, so treating ErrHelp as success cannot swallow real errors.
+func TestUnknownFlagStillFails(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-bogus")
+	cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("-bogus: %v, want exit 1\n%s", err, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined") || !strings.Contains(stderr.String(), "Usage of keystore-agent:") {
+		t.Errorf("-bogus: stderr %q lacks the flag error or the usage", stderr.String())
+	}
+}
+
 // SIGHUP is what a terminal-launched agent gets when its terminal closes. The agent has no
 // reload, so it must stop exactly as it does on SIGINT/SIGTERM: socket removed, exit 0.
 // Left to the default action it died with status 129 and the socket pointing at nothing.
