@@ -8,8 +8,8 @@
 // environment once read (children and os.Environ no longer see it), but the block the
 // process started with stays readable by the same user (ps eww, /proc/PID/environ), so
 // prefer -passfile. There is no default ring: -keystore (or $KEYSTORE_FILE) and -sock are
-// required. The socket is removed on SIGINT, SIGTERM, or when -ttl or
-// -idle expires; the process then exits 0. If the socket file is removed or replaced it
+// required. The socket is removed on SIGINT, SIGTERM, SIGHUP (unless inherited as
+// ignored), or when -ttl or -idle expires; the process then exits 0. If the socket file is removed or replaced it
 // stops within about 10 s and exits 1 (the replacement is left alone).
 package main
 
@@ -112,7 +112,14 @@ func run(args []string) error {
 	}
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	// SIGHUP too: a closed terminal sends it, and the agent has no reload to offer a service
+	// manager that sends it for one, so a clean stop is the only sensible reading. Unless it
+	// was inherited as ignored (nohup): Notify would replace that ignore with a handler.
+	sigs := []os.Signal{syscall.SIGINT, syscall.SIGTERM}
+	if !signal.Ignored(syscall.SIGHUP) {
+		sigs = append(sigs, syscall.SIGHUP)
+	}
+	signal.Notify(sig, sigs...)
 	go func() {
 		s := <-sig
 		log.Printf("keystore-agent: %v; stopping", s)
