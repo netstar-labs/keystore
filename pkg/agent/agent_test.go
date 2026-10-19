@@ -780,3 +780,96 @@ func TestCloseRacingTheSocketCheckIsACleanStop(t *testing.T) {
 		ln.Close()
 	}
 }
+
+// Every way the agent stops other than a detected loss (SIGTERM is Server.Close, then TTL,
+// an embedder's own ln.Close) used to unlink whatever sat at the socket path, though Serve
+// documents that it leaves a replacement alone: UnixListener unlinks by name on close.
+func TestStoppingLeavesAReplacementOfItsSocketAlone(t *testing.T) {
+	replace := map[string]func(t *testing.T, sock string){
+		"regular file": func(t *testing.T, sock string) {
+			if err := os.WriteFile(sock, []byte("mine"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"other socket": func(t *testing.T, sock string) {
+			other, err := net.Listen("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			other.(*net.UnixListener).SetUnlinkOnClose(false) // keep the file for the check below
+			t.Cleanup(func() { other.Close() })
+		},
+	}
+	for _, stop := range []string{"Server.Close", "TTL", "Listener.Close"} {
+		for rname, mk := range replace {
+			t.Run(rname+"/"+stop, func(t *testing.T) {
+				_, priv, _ := ed25519.GenerateKey(nil)
+				srv, err := NewServer(priv)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if stop == "TTL" {
+					srv.TTL = 300 * time.Millisecond
+				}
+				sock := filepath.Join(sockDir(t), "agent.sock")
+				ln, err := Listen(sock)
+				if err != nil {
+					t.Fatal(err)
+				}
+				done := make(chan error, 1)
+				go func() { done <- srv.Serve(ln) }()
+				defer srv.Close()
+				// The default check interval (10 s) is far off: this is the window in which
+				// the agent has not noticed the replacement yet.
+				if err := os.Remove(sock); err != nil {
+					t.Fatal(err)
+				}
+				mk(t, sock)
+				switch stop {
+				case "Server.Close":
+					srv.Close()
+				case "Listener.Close":
+					ln.Close()
+				}
+				select {
+				case <-done:
+				case <-time.After(3 * time.Second):
+					t.Fatal("Serve did not return")
+				}
+				if _, err := os.Lstat(sock); err != nil {
+					t.Errorf("stopping by %s unlinked the file that replaced the socket: %v", stop, err)
+				}
+			})
+		}
+	}
+}
+
+// socketLost used to flip SetUnlinkOnClose on a listener an embedder may be closing at the
+// same moment (the CLI and Server.Close are ordered by s.mu; a direct ln.Close is not).
+// Only -race can fail this one.
+func TestSocketLostRacingAnEmbeddersListenerCloseIsRaceFree(t *testing.T) {
+	for i := 0; i < 300; i++ {
+		_, priv, _ := ed25519.GenerateKey(nil)
+		srv, err := NewServer(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv.checkEvery = 50 * time.Microsecond
+		sock := filepath.Join(sockDir(t), "agent.sock")
+		ln, err := Listen(sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- srv.Serve(ln) }()
+		os.Remove(sock) // the next check reports a loss...
+		time.Sleep(time.Duration(i%7) * 40 * time.Microsecond)
+		ln.Close() // ...while the embedder closes the listener itself
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("run %d: Serve did not return", i)
+		}
+		srv.Close()
+	}
+}

@@ -99,10 +99,14 @@ func (l *Listener) intact() bool {
 	return err == nil && os.SameFile(l.sock, st)
 }
 
-// Close closes the socket (removing it) and then releases the path lock. Concurrent calls
-// all wait for the first to finish, so none returns before the lock is released.
+// Close closes the socket (removing it, unless the file at the path is no longer ours) and
+// then releases the path lock. Concurrent calls all wait for the first to finish, so none
+// returns before the lock is released.
 func (l *Listener) Close() error {
 	l.closeOnce.Do(func() {
+		// UnixListener unlinks by name, so a replacement would go too. Decided here, inside
+		// the once, so it cannot race another closer; whoever stops the agent, by any route.
+		l.UnixListener.SetUnlinkOnClose(l.intact())
 		l.closeErr = l.UnixListener.Close()
 		l.lock.Close() // closing the descriptor releases the flock
 	})
@@ -306,18 +310,18 @@ func (s *Server) watch(stop <-chan struct{}) {
 
 // socketLost stops the agent because its socket file was removed or replaced: nothing can
 // reach it any more, yet it would keep holding the key (its path lock would also block a
-// replacement). Whatever is at the path now is not ours, so it is never unlinked.
+// replacement). Whatever is at the path now is not ours; Listener.Close sees that and does
+// not unlink it.
 //
 // A Close already under way (SIGTERM, an embedder) removed the socket itself, which is not
-// a loss, and is inside ln.Close: leave it alone. The check and SetUnlinkOnClose share the
-// lock Close takes before it touches the listener, so the two cannot overlap.
+// a loss, and is inside ln.Close: leave it alone. s.closed is set under the same lock
+// before Close touches the listener, so the two cannot overlap.
 func (s *Server) socketLost() {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return
 	}
-	s.ln.SetUnlinkOnClose(false)
 	s.lost = true
 	s.mu.Unlock()
 	s.logf("the socket %s was removed or replaced; stopping", s.ln.path)
