@@ -224,7 +224,11 @@ func TestAgentHammerRestart(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	downSince := time.Now()
 	time.Sleep(700 * time.Millisecond)
-	if last := time.Unix(0, h.lastOK.Load()); last.After(a.exited) {
+	// The success timestamp is taken by the client goroutine after the reply arrives, so a
+	// loaded or -race run can stamp it a few ms after the process's recorded exit; a real
+	// post-exit signature is impossible (no other agent exists) and is also covered by the
+	// direct sign attempt below, so only a gross gap is flagged here.
+	if last := time.Unix(0, h.lastOK.Load()); last.After(a.exited.Add(250 * time.Millisecond)) {
 		t.Errorf("a signature succeeded %v after the agent exited", last.Sub(a.exited))
 	}
 	if err := signOnce(e.sock, []byte("x"), e.pub); err == nil {

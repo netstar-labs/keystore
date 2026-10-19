@@ -73,7 +73,7 @@ func TestFleet(t *testing.T) {
 	fail := func(f string, a ...any) { mu.Lock(); viol = append(viol, fmt.Sprintf(f, a...)); mu.Unlock() }
 
 	// one signing process; want is the fingerprint the process MUST report ("" = any known key).
-	one := func(kind string, w, seq int, args []string, env []string, wantFP string, wantPub ed25519.PublicKey) {
+	one := func(kind string, w, seq int, args []string, env []string, wantFP string, wantPub ed25519.PublicKey) string {
 		msg := []byte(fmt.Sprintf("fleet-%s-%d-%d-%d", kind, w, seq, time.Now().UnixNano()))
 		n := inflight.Add(1)
 		for {
@@ -86,10 +86,11 @@ func TestFleet(t *testing.T) {
 		inflight.Add(-1)
 		if r.code != 0 {
 			bump(kind + "/" + classify(r))
-			if c := classify(r); c != oPass {
+			c := classify(r)
+			if c != oPass {
 				fail("%s: %s", kind, r.stderr)
 			}
-			return
+			return c
 		}
 		fp := ""
 		for _, ln := range strings.Split(r.stderr, "\n") {
@@ -100,30 +101,31 @@ func TestFleet(t *testing.T) {
 		sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(r.stdout))
 		if err != nil || fp == "" {
 			fail("%s: unparsable output %q %q", kind, r.stdout, r.stderr)
-			return
+			return oOther
 		}
 		pubMu.Lock()
 		pub := pubs[fp]
 		pubMu.Unlock()
 		if pub == nil {
 			fail("%s: signed under unknown key %s", kind, fp)
-			return
+			return oOther
 		}
 		if wantFP != "" && fp != wantFP {
 			fail("%s: signed under %s, want %s", kind, fp, wantFP)
 		}
 		if !ed25519.Verify(pub, msg, sig) {
 			fail("%s: signature does not verify under the key it names (%s)", kind, fp)
-			return
+			return oOther
 		}
 		if wantPub != nil && !ed25519.Verify(wantPub, msg, sig) {
 			fail("%s: signature does not verify under the expected key", kind)
-			return
+			return oOther
 		}
 		bump(kind + "/ok")
 		if kind == "agent1" && k1Removed.Load() {
 			oldAgentOK.Add(1)
 		}
+		return oOK
 	}
 
 	a1 := startAgentRaw(ring, sock(1), home, pass(0), "-id", "k1")
@@ -164,14 +166,8 @@ func TestFleet(t *testing.T) {
 				default: // straight from the ring, which is being rotated underneath
 					e1 := epoch.Load()
 					g := gen.Load()
-					mu.Lock()
-					before := count["ring/stale-pass"]
-					mu.Unlock()
-					one("ring", w, seq, []string{"sign", "-keystore", ring}, []string{"KEYSTORE_PASSPHRASE=" + pass(int(g))}, "", nil)
-					mu.Lock()
-					after := count["ring/stale-pass"]
-					mu.Unlock()
-					if e1%2 == 0 && epoch.Load() == e1 && after != before {
+					if one("ring", w, seq, []string{"sign", "-keystore", ring}, []string{"KEYSTORE_PASSPHRASE=" + pass(int(g))}, "", nil) == oPass &&
+						e1%2 == 0 && epoch.Load() == e1 {
 						fail("ring sign refused the passphrase with no rotation in flight")
 					}
 				}

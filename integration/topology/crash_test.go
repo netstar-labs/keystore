@@ -123,6 +123,7 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 	}
 	// Calibrate how long each op takes unmolested, so kill delays span the whole op.
 	calib := map[string]time.Duration{}
+	calibMin := map[string]time.Duration{}
 	for i := 0; i < 3; i++ {
 		var id string
 		model, id = add(model)
@@ -132,8 +133,10 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 			return
 		}
 		calib["add"] = max(calib["add"], r.dur)
+		calibMin["add"] = minNZ(calibMin["add"], r.dur)
 		r = ks(home, "", "", "use", "-keystore", ring, "-id", id)
 		calib["use"] = max(calib["use"], r.dur)
+		calibMin["use"] = minNZ(calibMin["use"], r.dur)
 		r = ks(home, "", "", "use", "-keystore", ring, "-id", "seed")
 		r = ks(home, pass(model.gen), pass(model.gen+1), "passwd", "-keystore", ring)
 		if !r.ok() {
@@ -142,10 +145,11 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 		}
 		model.gen++
 		calib["passwd"] = max(calib["passwd"], r.dur)
+		calibMin["passwd"] = minNZ(calibMin["passwd"], r.dur)
 	}
 	// calibration leaves current == seed; remove one entry to measure rm and shrink the ring
 	r := ks(home, "", "", "rm", "-keystore", ring, "-id", model.ids[1])
-	calib["rm"] = r.dur
+	calib["rm"], calibMin["rm"] = r.dur, r.dur
 	model.ids = slices.Delete(model.ids, 1, 2)
 
 	for it := 0; it < iters; it++ {
@@ -189,7 +193,16 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 
 		cmd := exec.Command(bin("keystore"), args...)
 		cmd.Env = append(cleanEnv(home), env...)
+		// Uniform over the whole op, except that 40% of kills are aimed at the tail: the last
+		// stretch before the op's fastest observed finish, where the temp file is written,
+		// renamed and the directory synced. Uniform sampling alone hits that few-millisecond
+		// window about once in a hundred kills.
 		delay := time.Duration(rng.Float64() * 1.25 * float64(calib[op]))
+		if rng.IntN(100) < 40 {
+			lo := max(0, calibMin[op]-25*time.Millisecond)
+			hi := calib[op] + 10*time.Millisecond
+			delay = lo + time.Duration(rng.Float64()*float64(hi-lo))
+		}
 		if err := cmd.Start(); err != nil {
 			fail("lane %d start: %v", lane, err)
 			return
@@ -290,4 +303,11 @@ func runLane(t *testing.T, lane, iters int, seed uint64, tally func(k string, ki
 			fail("lane %d final: entry %s does not unlock under gen %d", lane, e.ID, model.gen)
 		}
 	}
+}
+
+func minNZ(a, b time.Duration) time.Duration {
+	if a == 0 || b < a {
+		return b
+	}
+	return a
 }
