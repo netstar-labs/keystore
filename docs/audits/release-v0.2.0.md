@@ -1,9 +1,9 @@
-# Release v0.2.0 (prepared; not tagged, not published)
+# Release v0.2.0
 
-Written for: the repo owner deciding whether to tag and publish. Everything below was produced
-locally. **No tag was created, nothing was pushed, no GitHub release, repository metadata,
-LICENSE or visibility change was made.** The exact commands for those steps are listed under
-"To publish" for a human to run. Labels: [V] ran and observed in this session, [R] reported by
+Written for: the repo owner and future maintainers. The release notes, build and publish commands
+are below; the "Publish log" at the end records what was actually run and when (it is appended after
+the tag, so the tagged tree's copy ends at the log's header). **The repository stays private: the
+LICENSE and the visibility flip are a separate sign-off and were not done.** Labels: [V] ran and observed in this session, [R] reported by
 another audit page, [I] inferred.
 
 `v0.1.0` (a local tag, never pushed) predates every audit fix and ships three defects
@@ -103,8 +103,10 @@ report]; the crypto core (seal, kdf, ids, peercred, entry, keystore) is byte-ide
 [V by the audit's empty diff]. Private-name screen: no tracked file or commit message names a
 private org repository, and `go.mod` requires only `golang.org/x/crypto` and `golang.org/x/sys`
 [V this session]. Not run: a real systemd or launchd start, macOS cross-uid peer credentials,
-amd64 execution, Linux `-race`, GitHub Actions (CI has never run), the installer, the real
-keychain ([open-items.md](open-items.md)).
+amd64 execution, Linux `-race`, the installer, the real keychain. GitHub Actions ran for the
+first time on `main` after the repository was created: run 1 failed (`deadcode` on ubuntu also
+reports the darwin-only `checkService`; fixed by `393c0ea`), run 2 at `393c0ea` was green for all
+four jobs (`ci`, `ci-macos`, `fuzz`, `fuzz-all`) [V: `gh run view`] ([open-items.md](open-items.md)).
 
 ## Build (reproducible)
 
@@ -164,3 +166,7 @@ the GitHub release as a separate asset as well. No container image is shipped.
 Delete the GitHub release and the tag (`gh release delete v0.2.0 && git push --delete origin
 v0.2.0`); if the module proxy already fetched it, add a `retract v0.2.0` line to `go.mod` in a
 `v0.2.1` release. Nothing published means nothing to roll back today.
+
+## Publish log
+
+(Appended after the tag; see the repository's git history for the commit that fills this in.)
