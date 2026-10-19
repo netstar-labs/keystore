@@ -184,7 +184,7 @@ covered.
 | passfile | 0600 | anyone holding both this and the ring can unlock it — keep it out of the ring's backups |
 | `agent.sock` | 0600 | the agent's socket; removed when the agent stops |
 | `agent.sock.lock` | 0600 | the agent's path lock; empty; stays after the agent exits, safe to delete when no agent runs |
-| `sig` from `sign -o` | 0644 | signatures are public; `export-*` with `-o` write 0600, but a shell `>` redirect gets the umask's mode |
+| `sig` from `sign -o` | 0644 | signatures are public; `export-*` with `-o` write 0600; `export-*` refuses a shell `>` redirect into a file that group or others can read |
 
 ## Errors
 
@@ -196,6 +196,15 @@ covered.
 | `ring format is newer than this binary` | upgrade the binary |
 | `ring is locked by another process` | another writer held the lock past the timeout |
 | `invalid entry id` | ids are 1–64 chars of `A–Z a–z 0–9 . _ -`, starting alphanumeric |
+| `found a "…" PEM block, expected "…"` | a key file of the wrong kind; an encrypted PKCS#8 key must be decrypted first (`openssl pkey -in ENCRYPTED.pem -out plain.pem`) |
+| `the signing key is …, expected …` | `sign -expect-fp` found a different key than the one pinned (see Rotation) |
+
+Anything the CLI echoes that it did not produce itself (file names, paths, flag names, OS error
+text) is printed with control characters, escape sequences, bidirectional overrides, line
+separators and invalid UTF-8 replaced by spaces, so a name taken from an archive or an upload
+cannot recolour or retitle the terminal or forge a line such as `verified:`; `keystore-agent`
+does the same for its error and log lines. A mistyped flag prints the usage text first and the
+error last.
 
 ## Exit status
 

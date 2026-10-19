@@ -66,7 +66,7 @@ documentation lives in the repository.
 | `internal/ringfile/` | JSON schema, validation, locking, atomic durable writes |
 | `internal/ids/` | entry-id validation |
 | `internal/passphrase/` | passphrase sources and the establishment policy |
-| `internal/term/` | no-echo prompt and terminal detection |
+| `internal/term/` | no-echo prompt, terminal detection and output cleaning |
 | `internal/keychain/` | macOS Keychain passphrase source |
 | `internal/peercred/` | unix-socket peer credentials |
 | `cmd/keystore/` | the CLI |
