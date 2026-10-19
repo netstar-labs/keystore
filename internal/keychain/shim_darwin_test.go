@@ -12,8 +12,7 @@ import (
 )
 
 // These tests never run /usr/bin/security: useShim points the package at a script in a
-// temp dir that records how it was called. (TestGetMissing is the one test that reaches
-// the real binary, read-only.)
+// temp dir that records how it was called.
 
 const shimScript = `#!/bin/sh
 d=$(dirname "$0")

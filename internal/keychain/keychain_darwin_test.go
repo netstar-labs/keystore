@@ -30,13 +30,6 @@ func TestServiceNamesCannotBeOptions(t *testing.T) {
 	}
 }
 
-// Read-only: looks up a service that does not exist; never writes the keychain.
-func TestGetMissing(t *testing.T) {
-	if _, err := Get("keystore-test-no-such-service-6e1f"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Get(missing) = %v, want ErrNotFound", err)
-	}
-}
-
 // The exact argv and program path handed to security(1). TestArgsNeverCarryTheSecret
 // checks the shape (bare trailing -w, -U present); this pins every element and its
 // order, because security reads positions and flags: a reordered or renamed flag makes it

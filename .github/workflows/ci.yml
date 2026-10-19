@@ -22,6 +22,9 @@ jobs:
       - run: go build ./... && go vet ./...
       - run: go test -race -count=1 ./...
       - run: go run "$STATICCHECK" ./...
+      # The opt-in live suites (integration/*, integration/topology) sit behind build tags, so
+      # the default vet and staticcheck never see them; type-check and lint them too.
+      - run: go vet -tags integration,topology ./... && go run "$STATICCHECK" -tags integration,topology ./...
       - run: test -z "$(gofmt -l .)"
       - run: go mod tidy && git diff --exit-code go.mod go.sum
       - run: go run "$GOVULNCHECK" ./...
@@ -35,7 +38,7 @@ jobs:
           out=$(systemd-analyze verify --user examples/agent-service/keystore-agent.service 2>&1) || { echo "$out"; exit 1; }
           if grep -Eqi 'unknown (key|section)|failed to parse|ignoring' <<<"$out"; then echo "$out"; exit 1; fi
 
-  # macOS: LOCAL_PEERCRED, the keychain lookup, and the launchd plist.
+  # macOS: LOCAL_PEERCRED, the keychain argv (through a shim: nothing runs the real security(1)), and the launchd plist.
   ci-macos:
     runs-on: macos-latest
     steps:
@@ -46,7 +49,7 @@ jobs:
       - run: go test -race -count=1 ./...
       - run: plutil -lint examples/agent-service/local.keystore-agent.plist
 
-  # Fuzz budget: the two attacker-facing parsers, 60 s each.
+  # Deeper budget for the two attacker-facing parsers, 60 s each (fuzz-all covers every target).
   fuzz:
     runs-on: ubuntu-latest
     steps:
@@ -55,3 +58,25 @@ jobs:
         with: { go-version-file: go.mod }
       - run: go test -run '^$' -fuzz=FuzzParse -fuzztime=60s ./internal/ringfile
       - run: go test -run '^$' -fuzz=FuzzReadFrame -fuzztime=60s ./pkg/agent
+
+  # Every fuzz target, 20 s each. The list comes from the code (go test -list), and the count
+  # is checked against a grep of the sources, so a target that the build skips (a build tag, a
+  # rename) fails the job instead of silently dropping out of the budget.
+  fuzz-all:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: |
+          set -eu
+          ran=0
+          for pkg in $(go list ./...); do
+            for t in $(go test -list '^Fuzz' "$pkg" | grep '^Fuzz' || true); do
+              go test -run '^$' -fuzz="^${t}\$" -fuzztime=20s "$pkg"
+              ran=$((ran + 1))
+            done
+          done
+          want=$(grep -rhE '^func Fuzz[A-Za-z0-9_]*\(' --include='*_test.go' . | wc -l)
+          echo "fuzzed $ran of $want targets"
+          [ "$ran" -gt 0 ] && [ "$ran" -eq "$want" ]
