@@ -538,6 +538,41 @@ func TestClientQuotesTheAgentsErrorText(t *testing.T) {
 	}
 }
 
+// The escaping above does not bound the text: a fake agent can answer with a megabyte of
+// escapes and flood the terminal. The client keeps only a short prefix.
+func TestClientBoundsTheAgentsErrorText(t *testing.T) {
+	sock := filepath.Join(sockDir(t), "fake.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		readFrame(c)
+		writeFrame(c, StatusErr, bytes.Repeat([]byte("\x1b[31mX\n"), MaxPayload/7))
+	}()
+	_, err = Dial(sock)
+	if err == nil {
+		t.Fatal("Dial succeeded against an error reply")
+	}
+	if len(err.Error()) > 1024 {
+		t.Errorf("client error is %d bytes, want under 1 KiB", len(err.Error()))
+	}
+	for _, r := range err.Error() {
+		if r < 0x20 || r == 0x7f {
+			t.Fatalf("raw control character %U in error %q", r, err)
+		}
+	}
+	if !strings.Contains(err.Error(), `\x1b[31mX\n`) {
+		t.Errorf("error lost the escaped prefix: %.80q", err)
+	}
+}
+
 // A socket path longer than sun_path used to fail inside bind with "invalid argument"
 // (naming no limit), after the path's lock file had already been created and left behind.
 func TestListenRejectsTooLongPathWithoutSideEffects(t *testing.T) {
