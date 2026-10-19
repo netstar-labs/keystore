@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -85,7 +86,8 @@ func TestReleaseCleanTree(t *testing.T) {
 		t.Fatalf("want 4 archives, got %v\n%s", got, out)
 	}
 	for _, a := range got {
-		if strings.Contains(a, "dirty") || !strings.Contains(a, "keystore-v1.0.0-") {
+		// exactly the tag: no -N-gSHA suffix from describe
+		if !regexp.MustCompile(`/keystore-v1\.0\.0-(linux|darwin)-(amd64|arm64)\.tgz$`).MatchString(a) {
 			t.Errorf("archive %s: want a clean v1.0.0 name", a)
 		}
 	}
@@ -115,6 +117,46 @@ func TestReleaseRefusesDirtyTree(t *testing.T) {
 				t.Errorf("refusal does not say why:\n%s", out)
 			}
 		})
+	}
+}
+
+// A release must be built from exactly a tag: a clean HEAD past the tag would be named
+// keystore-v1.0.0-1-gSHA, and with no reachable tag at all, "dev". The same refusal
+// covers a tag that sits on an older commit.
+func TestReleaseRefusesUntaggedHead(t *testing.T) {
+	dir := repo(t)
+	if out, err := run(t, dir, "git", "commit", "-q", "--allow-empty", "-m", "after the tag"); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	out, err := run(t, dir, "build/keystore", "--release")
+	if err == nil {
+		t.Fatalf("release from an untagged HEAD succeeded:\n%s", out)
+	}
+	if got := archives(t, dir); len(got) != 0 {
+		t.Fatalf("untagged release left archives %v", got)
+	}
+	if !strings.Contains(out, "git tag") {
+		t.Errorf("refusal does not say how to tag first:\n%s", out)
+	}
+	// dev builds are unchanged: still stamped with the describe suffix
+	out, err = run(t, dir, "build/keystore")
+	if err != nil || !strings.Contains(out, "VERSION  v1.0.0-1-g") {
+		t.Fatalf("dev build from an untagged HEAD changed: %v\n%s", err, out)
+	}
+}
+
+// CI checks a tag out detached; that is the normal release path.
+func TestReleaseDetachedHeadOnTag(t *testing.T) {
+	dir := repo(t)
+	if out, err := run(t, dir, "git", "checkout", "-q", "--detach", "v1.0.0"); err != nil {
+		t.Fatalf("checkout: %v\n%s", err, out)
+	}
+	out, err := run(t, dir, "build/keystore", "--release")
+	if err != nil {
+		t.Fatalf("detached release on the tag failed: %v\n%s", err, out)
+	}
+	if got := archives(t, dir); len(got) != 4 {
+		t.Fatalf("want 4 archives, got %v\n%s", got, out)
 	}
 }
 
