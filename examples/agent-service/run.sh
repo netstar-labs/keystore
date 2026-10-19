@@ -46,7 +46,7 @@ AGENT_PID=
 [ ! -e "$SOCK" ] || fail "socket left behind after idle"
 ok "idle agent stopped; socket removed"
 
-step "service definitions are well-formed (not installed)"
+step "service definitions: lint (informational here; CI gates the systemd check)"
 if command -v plutil >/dev/null; then plutil -lint "$HERE/local.keystore-agent.plist"; else echo "plutil not available; skipped plist lint"; fi
 if command -v systemd-analyze >/dev/null; then
     systemd-analyze verify --user "$HERE/keystore-agent.service" 2>&1 | grep -v 'Executable path' || true

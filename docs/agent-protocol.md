@@ -54,7 +54,9 @@ An unknown operation gets an error reply and the connection is closed.
 
 `-ttl D` stops the agent `D` after start; `-idle D` stops it after `D` with no successful
 request (every successful request counts, `'P'` included; `-ttl` is the hard stop). `0`
-disables either; a negative value is refused (exit 1). On expiry, SIGINT, SIGTERM or SIGHUP (unless inherited as ignored) the
+disables either; a negative value is refused (exit 1). Omitting the flags is not "no limit":
+`keystore-agent` defaults to `-ttl 8h -idle 30m`, so an agent started without them stops, exit 0,
+after 8 hours or after 30 minutes without a request (`keystore-agent -h` shows the defaults). On expiry, SIGINT, SIGTERM, or SIGHUP (not if SIGHUP was inherited as ignored) the
 agent closes the listener (removing the socket) **and every open connection**, so a client
 holding a connection open cannot extend its life; it then waits for handlers to return
 (bounded by the deadline), clears the key, and exits 0.

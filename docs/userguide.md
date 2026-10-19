@@ -1,7 +1,7 @@
 # User guide
 
 `keystore <verb> [flags]`. Every verb that reads a ring accepts `-keystore FILE` (default
-`$KEYSTORE_FILE`, else `~/.config/keystore/default.ks`; with no home directory either, such as under cron, the verb exits 2 until you give one); `verify` and `keychain-set` read no ring
+`$KEYSTORE_FILE`, else `~/.config/keystore/default.ks`; with no home directory either, such as under cron, the verb exits 2 until you give one; `sign -agent`, which reads no ring, is exempt); `verify` and `keychain-set` read no ring
 and take no `-keystore`. Verbs that need the passphrase also accept `-passfile FILE`.
 There is **no passphrase flag** — argv is visible to other users in `ps`.
 
@@ -40,13 +40,16 @@ keystore list -keystore prod.ks
 Resolved in this order:
 
 1. `KEYSTORE_PASSPHRASE` — convenient for automation, but visible in the process environment.
+   An empty value counts as unset (the same for `KEYSTORE_KEYCHAIN`), silently: an unset CI secret
+   that expands to nothing falls through to `-passfile` or the prompt.
    When it is set it wins over `-passfile` (the same holds for the keychain below, and for
    `KEYSTORE_NEW_PASSPHRASE` over `-new-passfile` in `passwd`). Unlocking prints a note
    (`KEYSTORE_PASSPHRASE is set, so -passfile is ignored`); *establishing* a passphrase (the
    first entry into an empty ring: `keygen`, `add`, `import`, `add-secret`, `import-secret`; and
    `passwd`'s new passphrase) is refused, because the ring would otherwise be created under a
    value you did not mean. Unset one of the two.
-2. `-passfile FILE` — must be owned by you and mode 0600 or stricter, or it is refused.
+2. `-passfile FILE` — must be a regular file (not a symlink: it is refused with `too many levels of
+   symbolic links`), owned by you and mode 0600 or stricter, or it is refused.
 3. A no-echo prompt on the terminal (asked twice when setting a new passphrase).
 
 On macOS, `keystore keychain-set -service prod` stores the passphrase in the login keychain
@@ -147,13 +150,15 @@ as the same user over an owner-only socket. Its passphrase comes from `-passfile
 `KEYSTORE_KEYCHAIN` is set). Prefer `-passfile`: the agent unsets the variable in its own
 environment once read, but the copy in the environment block it was started with remains
 readable by the same user (`ps eww`, `/proc/PID/environ`). The agent has no default ring:
-`-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required; `-h` prints usage to stderr and exits 0. The socket's directory must
+`-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required; `-h` prints usage to stderr and exits 0.
+Without `-ttl` and `-idle` it uses `-ttl 8h -idle 30m`, so it is not unlimited by default and stops
+(exit 0) after 8 hours or 30 minutes without a request. The socket's directory must
 already exist, be yours and mode 0700, and the whole socket path must fit the operating system's
 limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
 It stops — removing the socket — on SIGINT/SIGTERM/SIGHUP (there is no reload, so SIGHUP stops it, unless it was started with SIGHUP ignored, as `nohup` does, which is respected), after `-ttl` (a hard stop), or after
 `-idle` without a successful request (any successful request counts, including a public-key
-fetch); `0` disables either and a negative value is refused. It also stops, exiting 1, if
-its socket file is removed or replaced. A second agent will not take over a live socket. The
+fetch); `0` disables either and a negative value is refused (exit 1, before the passphrase is read). It also
+stops, exiting 1, if its socket file is removed or replaced (it notices within about 10 seconds). A second agent will not take over a live socket. The
 agent loads its key once: after `rm` or `passwd` retires or re-encrypts a key, stop and restart
 any agent that holds it (it keeps signing with what it loaded). Wire format: [agent-protocol.md](agent-protocol.md).
 Service definitions: [examples/agent-service](../examples/agent-service/).
@@ -165,6 +170,10 @@ s, err := agent.Dial(sock)                  // or agent.ResolveSigner(sock, ring
 sig, err := s.Sign(nil, msg, crypto.Hash(0))
 ```
 
+On an error `agent.ResolveSigner` and `Keystore.Signer` return a nil `crypto.Signer`, never a non-nil
+interface holding a nil pointer, so `if s == nil` is safe. The library refuses an empty passphrase in
+`Add`, `AddSecret`, `Import` and `ImportSecret`; the 12-character minimum is the CLI's, not the library's.
+
 ## Exporting private keys
 
 `export-priv` exists for backup and migration. It writes PKCS#8 PEM to `-o FILE`, which is
@@ -172,8 +181,9 @@ created new with mode 0600 and never follows a symlink. An existing file is refu
 `-force`, which replaces it atomically. Without `-o`, it refuses to print to a terminal, or to a
 regular file on stdout that group or others can read (`export-priv > key.pem` makes the shell
 create that file at the umask mode, 0644 under the usual 022), unless `-force`; use `-o FILE`, or
-`chmod 600` the file first. A pipe has no mode to check, so `export-priv | tee key.pem` is not
-covered.
+`chmod 600` the file first. `>>` onto a file others can read is refused the same way. The refusal
+leaves the empty file the shell already created; delete it. A pipe has no mode to check, so
+`export-priv | tee key.pem` is not covered.
 
 ## Files
 
@@ -184,7 +194,8 @@ covered.
 | passfile | 0600 | anyone holding both this and the ring can unlock it — keep it out of the ring's backups |
 | `agent.sock` | 0600 | the agent's socket; removed when the agent stops |
 | `agent.sock.lock` | 0600 | the agent's path lock; empty; stays after the agent exits, safe to delete when no agent runs |
-| `sig` from `sign -o` | 0644 | signatures are public; `export-*` with `-o` write 0600, but a shell `>` redirect gets the umask's mode |
+| `sig` from `sign -o` | 0644 | signatures are public |
+| key or secret from `export-*` | 0600 | with `-o`; a shell `>` or `>>` into a file that group or others can read (a new `>` file is 0644 under the usual umask 022) is refused; a pipe is not checked |
 
 ## Errors
 
@@ -192,13 +203,30 @@ covered.
 |---|---|
 | `wrong passphrase or corrupt entry` | AEAD check failed — wrong passphrase, or the entry was modified |
 | `passphrase does not match this ring` | the passphrase differs from the one the ring's entries use |
-| `not a keystore file` | wrong file, or a field fails validation |
+| `not a keystore file` | wrong file, or a field fails validation (a repeated `entries` key and a duplicate entry id both count; see [format.md](format.md)) |
 | `ring format is newer than this binary` | upgrade the binary |
 | `ring is locked by another process` | another writer held the lock past the timeout |
 | `invalid entry id` | ids are 1–64 chars of `A–Z a–z 0–9 . _ -`, starting alphanumeric |
+| `found a "…" PEM block, expected "…"` | a key file of the wrong kind; an encrypted PKCS#8 key must be decrypted first (`openssl pkey -in ENCRYPTED.pem -out plain.pem`) |
+| `the signing key is …, expected …` | `sign -expect-fp` found a different key than the one pinned (see Rotation) |
+
+Anything the CLI echoes that it did not produce itself (file names, paths, flag names, OS error
+text) is printed with control characters (escape, carriage return, DEL, C1), bidirectional overrides and
+line separators replaced by spaces, and each invalid UTF-8 byte shown as U+FFFD (the replacement
+character), so a name taken from an archive or an upload cannot recolour or retitle the
+terminal or forge a line such as `verified:`. `keystore-agent` does the same for its error and
+log lines (its output goes through the same cleaner at the log sink). A mistyped flag prints the
+usage text first and the error last.
 
 ## Exit status
 
 `0` success (and `-h`/`help`); `1` failure (a missing file, a wrong passphrase, a refused
 operation); `2` usage error; `3` a signature that does not verify (`verify`), so a script can tell a
-bad signature from a check that could not be made; `130` interrupted at a prompt.
+bad signature from a check that could not be made; `130` interrupted at a prompt. These are the
+`keystore` verbs' codes. `keystore-agent` exits 0 on a clean stop (signal or `-ttl`/`-idle` expiry,
+and `-h`) and 1 on everything else, flag errors included (it has no exit 2).
+
+If writing to stdout fails after the ring was already changed (a full disk or a closed pipe: `keygen`
+and `add` print the new public key last), the verb exits 1, or is killed by SIGPIPE (shell status
+141) when stdout is a closed pipe, and the change is committed anyway. Check with `keystore list`;
+`export-pub` re-prints the public key, from the ring's stored copy (see Rotation).

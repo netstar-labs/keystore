@@ -181,6 +181,10 @@ func Parse(b []byte) (*File, error) {
 		}
 		return nil, ErrBadFormat
 	}
+	// Unreachable today: the peek Unmarshal above already rejects any bytes after the first
+	// document. Kept as the only guard if the peek is ever simplified (a Decoder alone accepts
+	// trailing data). Audit A7 reports a differential fuzz of Parse with and without it found no
+	// divergence (docs/audits/gap-audit.md, G7).
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, ErrBadFormat // trailing data
 	}

@@ -69,7 +69,10 @@ no-echo prompt. A **12-character minimum** applies whenever a passphrase is esta
    another of the victim's keys, resurrect a removed key or deny service; see
    [format.md](../format.md#what-is-authenticated) and decision 39.
 3. A crash at any point leaves either the old ring or the new ring, never a torn one, and
-   the new one is durable once the command returns.
+   the new one is durable once the command returns (atomicity is tested, including by
+   real `SIGKILL`; that `fsync` runs is asserted by reading the code, not by a test: a
+   kill cannot lose the page cache, see
+   [untestable-without-x](../audits/untestable-without-x.md)).
 4. Cooperating processes (those that take `<ring>.lock`) cannot lose each other's writes.
    The lock is advisory; a process that ignores it can race.
 5. One passphrase per ring, enforced.
@@ -102,8 +105,14 @@ protect against (for example: any process running as the same user can use the a
 `run.sh` that stands the scenario up in a temp directory and tears it down.
 
 Acceptance: `go test ./examples/...` runs every scenario in-process or with the built
-binaries; each verifies the happy path, a tampered message, a wrong key, and an expired or
-absent agent.
+binaries; each shows its happy path and the refusals that fit its scenario, not one fixed
+list: `ci-release` a replaced artifact, a manifest rewritten to match it, a release signed by
+another key and a stopped agent; `rotation` a wrong key pin, a retired key and removing the last
+signing key; `provision` a loose passfile, a short or mismatched passphrase and a redirected
+export; `secrets` a wrong passphrase, a missing secret (in `run.sh`) and, in its Go tests, a
+loose passfile and a modified ring entry; `agent-service` and `signed-requests` (in `run.sh`) the absent or
+expired agent, `agent-service` also a second agent and a 0755 socket directory. No single
+example covers every case.
 
 ## Non-goals
 
