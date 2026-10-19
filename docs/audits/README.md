@@ -29,7 +29,9 @@ reports are single-auditor reports, and their rows say what was done about them.
 | [untestable-without-x.md](untestable-without-x.md) | What could not be run here, and the exact command for a human to run |
 | [release-v0.1.0.md](release-v0.1.0.md) | Historical record of the `v0.1.0` tag, with a banner listing its stale places; superseded by the release step |
 
-## Outputs the audit plan listed that were not produced as separate pages, and why
+## Planned outputs not produced as separate pages, and why
+
+The audit plan is a local working file that is not committed; it listed 19 outputs for this directory.
 
 | Planned name | Why not produced | Where the content is |
 |---|---|---|
@@ -40,6 +42,8 @@ reports are single-auditor reports, and their rows say what was done about them.
 | `live-targets.md` | a separate catalogue of targets with a known-bad case each was not kept; the tier table at the top of the live-integration page is the nearest equivalent | [live-integration.md](live-integration.md) |
 
 ## Conventions
+
+IDs: `W1-nn` are wave-1 findings (auditors A simplify, B dedup, C correctness, D doc drift, written `W1-D1` etc.); `W2-<n>-<m>` are wave-2 findings, `<n>` being the A3 lens (1 format and AEAD, 2 KDF and lifecycle, 3 agent and IPC, 4 ring file, 5 CLI); `W2-B*` the blind implementer; `W2-I*` the interop and Linux run; `S1`-`S5` the finding skeptics; `A4-n` supply chain; `A5 Ln` (L1 to L21) the silent-degradation lapses; `L1`, `L2`, `L3`, `L3b` and `L4` are pipeline passes, not lapse numbers: L1 verification and optimization, L2 tests and mutation, L3 live integration, L3b real topology, **L4 the release step (tag, notes, publish), not done by the audit**; `Gn` is an A7 gap found by the auditor, `Mn` one found by the A7 skeptic, `On` an owner item in [open-items.md](open-items.md). "Wave" headings in [test-ledger.md](test-ledger.md) follow the plan's wave numbers (wave 2 = A3, 3 = A5/A6, 5 = L2, 6 = L3, 7 = L3b, 8 = A7).
 
 Labels used throughout: **verified** (the author ran or read it and saw the result), **reported** (a named
 source says it; not re-run), **inferred** (constructed from stated evidence). A "skeptic" is a separate

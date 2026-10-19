@@ -11,17 +11,17 @@ stated. Sources: [gap-audit.md](gap-audit.md) (audit A7 and its skeptic), [silen
 
 ## 1. Needs an owner decision
 
-None of these is a code defect. The only HIGH finding of the whole audit is the first row.
+None of these is a code defect. The only HIGH finding left open is the first row (W1-D1 was HIGH as worded and is resolved: see [audit-findings.md](audit-findings.md)).
 
 | # | Item | State | What the decision is |
 |---|---|---|---|
-| O1 | **The `v0.1.0` tag does not contain the audited code** (A7 G1, HIGH) | The local annotated tag points at `ee25732`; `main` is 162 commits ahead [V: `git rev-list --count v0.1.0..main`]. There is no remote, so the tag was never pushed or fetched by a proxy [V: `git remote -v` empty]. The A7 skeptic built the tag and reproduced three behaviours the audit later fixed: `export-priv > f` under umask 022 writes a 0644 key file, `keystore-agent -ttl -2s` never expires, `verify` of a bad signature exits 1 not 3 [R: a7 skeptic G1]. `build/keystore --release` on `main` stamps `v0.1.0-<n>-g<sha>` [R: a7 G1]. | Either **(a)** `git tag -d v0.1.0` and tag the final commit `v0.1.0` (decision 38 wants one tag; cheapest, valid only because nothing was ever published), or **(b)** a new version. The A7 auditor's worry that (b) collides with the roadmap's "v0.2.0 = hardening" row is conditional, not real: scope.md's "breaking changes are a minor" rule applies to a published version, and the roadmap row itself says v0.1.0 includes "adversarial review and its fixes" [R: a7 skeptic G1]. `retract v0.1.0` in `go.mod` is not an option for an unpublished version (a retract lives in a later version's `go.mod`) [R: a7 skeptic G1]. **Do not push the current tag.** |
+| O1 | **The `v0.1.0` tag does not contain the audited code** (A7 G1, HIGH) | The local annotated tag points at `ee25732`; `main` is 162 commits ahead [V: `git rev-list --count v0.1.0..main`]. There is no remote, so the tag was never pushed or fetched by a proxy [V: `git remote -v` empty]. The A7 skeptic built the tag and reproduced three behaviours the audit later fixed: `export-priv > f` under umask 022 writes a 0644 key file, `keystore-agent -ttl -2s` never expires, `verify` of a bad signature exits 1 not 3 [R: gap-audit.md]. `build/keystore --release` on `main` stamps `v0.1.0-<n>-g<sha>` [R: a7 G1]. | Either **(a)** `git tag -d v0.1.0` and tag the final commit `v0.1.0` (decision 38 wants one tag; cheapest, valid only because nothing was ever published), or **(b)** a new version. The A7 auditor's worry that (b) collides with the roadmap's "v0.2.0 = hardening" row is conditional, not real: scope.md's "breaking changes are a minor" rule applies to a published version, and the roadmap row itself says v0.1.0 includes "adversarial review and its fixes" [R: gap-audit.md]. `retract v0.1.0` in `go.mod` is not an option for an unpublished version (a retract lives in a later version's `go.mod`) [R: gap-audit.md]. **Do not push the current tag.** |
 | O2 | **`release-v0.1.0.md` step 2 cannot be followed** (A7 M16) | Step 2 says `git tag -a v0.1.0 <sha> -m ...`; that fails with "tag already exists" against the stale local tag [V by reading step 2 and `git tag` showing `v0.1.0`]. The file now carries a banner listing its four stale places; the history below the banner is untouched. | Supersede it with the real release notes at L4 (see section 4). |
-| O3 | **LICENSE** (A7 M13) | No `LICENSE` file; README states no license; the SBOM says `PackageLicenseConcluded: NOASSERTION` for the project [R: a7 skeptic M13]; the release script copies a `LICENSE` if present. scope.md open question 2 and decision 2 accepted Apache-2.0 "at public". | Add Apache-2.0 at the time the repository goes public and regenerate the SBOM. |
-| O4 | **A FIFO at the ring path hangs the CLI forever** (A7 M5; ledger W2-4-6) | `mkfifo ring.fifo; keystore list -keystore ring.fifo` was still running after 3 s and was killed [R: a7 skeptic M5]. The same case for `-passfile` was fixed (commit `b258e75`), so treatment is inconsistent. Not in SECURITY.md or the userguide. | Either document it (a ring writer can already deny service by deleting the file) or add the 4-line regular-file `Lstat` guard the ledger estimated. Whoever can create the FIFO can already replace the ring, so the added risk is small [I]. |
+| O3 | **LICENSE** (A7 M13) | No `LICENSE` file; README states no license; the SBOM says `PackageLicenseConcluded: NOASSERTION` for the project [R: gap-audit.md]; the release script copies a `LICENSE` if present. scope.md open question 2 and decision 2 accepted Apache-2.0 "at public". | Add Apache-2.0 at the time the repository goes public and regenerate the SBOM. |
+| O4 | **A FIFO at the ring path hangs the CLI forever** (A7 M5; ledger W2-4-6) | `mkfifo ring.fifo; keystore list -keystore ring.fifo` was still running after 3 s and was killed [R: gap-audit.md]. The same case for `-passfile` was fixed (commit `b258e75`), so treatment is inconsistent. Not in SECURITY.md or the userguide. | Either document it (a ring writer can already deny service by deleting the file) or add the 4-line regular-file `Lstat` guard the ledger estimated. Whoever can create the FIFO can already replace the ring, so the added risk is small [I]. |
 | O5 | **Installer hygiene** (A7 M8) | The installer that `build/keystore` generates does `rm -rf "$INSTALL"` with `INSTALL=install` relative to the caller's directory, and `mkdir -p /usr/local/bin/version` makes a directory under `bin/` [R: a7 skeptic M8, from reading `build/keystore`; **not executed**: it needs root]. | Extract into a `mktemp -d` directory; keep the version history under `/usr/local/share/doc/keystore`. Untouched on purpose (the A7 build fix says so). |
-| O6 | **Internal inventory row** (A7 G19) | The owner's internal project inventory does not mention keystore; it is generated from GitHub with a weekly drift check, so the row appears when the repository exists; only the curated description and a doc-index entry are manual [R: a7 skeptic G19]. No repository imports keystore [R: a7 G19]. | Add the description and doc-index entry at publish time. |
-| O7 | **Delete the merged branches** (A7 G20) | 33 merged branches and 14 `worktree-agent-*` branches remain; all are ancestors of `main` [R: a7 skeptic G20]. `docs/W1-sync-after-fixes` was the one unmerged branch; it is merged by the branch that adds this page. | `git branch -d` them after pruning worktrees (a repository write, left to the owner). |
+| O6 | **Internal inventory row** (A7 G19) | The owner's internal project inventory does not mention keystore; it is generated from GitHub with a weekly drift check, so the row appears when the repository exists; only the curated description and a doc-index entry are manual [R: gap-audit.md]. No repository imports keystore [R: a7 G19]. | Add the description and doc-index entry at publish time. |
+| O7 | **Delete the merged branches** (A7 G20) | At the A7 audit 33 merged branches and 14 `worktree-agent-*` branches remained; all were ancestors of `main` [R: gap-audit.md]. Re-counted while writing this page: 43 lines in `git branch --merged main` (including `main` and the current worktree branch), 18 of them `worktree-agent-*` [V]; re-count before deleting. `docs/W1-sync-after-fixes` was the one unmerged branch; it is merged by the branch that adds this page. | `git branch -d` them after pruning worktrees (a repository write, left to the owner). |
 | O8 | **The owner-accepted behaviour changes** (decision 42) | Recorded as accepted. They are the list a release note must carry as breaking (section 4). | Nothing to decide; listed so the notes are complete. |
 
 ## 2. Not run, and what it needs
@@ -32,21 +32,21 @@ is on record; where the run is not in this repository's text the row says so.
 | Item | Status | Evidence | Command or need |
 |---|---|---|---|
 | Linux runtime (peercred, the six examples) | closed | [R] [live-integration.md](live-integration.md): alpine and debian arm64, root and uid 1000, all test binaries rc=0 | `integration/run.sh` (needs Apple `container`) |
-| Real cross-uid agent rejection | closed on Linux; **open on macOS** | [R] [topology-integration.md](topology-integration.md) `TestCrossUID`: peer uid 1001 and uid 0 refused by the peer-uid check, not by file mode; A7 re-ran it in a container [R: a7 gap-audit section 3]. macOS `LOCAL_PEERCRED` across users was never run. | row "A second real uid on macOS" in [untestable-without-x.md](untestable-without-x.md) |
+| Real cross-uid agent rejection | closed on Linux; **open on macOS** | [R] [topology-integration.md](topology-integration.md) `TestCrossUID`: peer uid 1001 and uid 0 refused by the peer-uid check, not by file mode; A7 re-ran it in a container [R: gap-audit.md]. macOS `LOCAL_PEERCRED` across users was never run. | row "A second real uid on macOS" in [untestable-without-x.md](untestable-without-x.md) |
 | `systemd-analyze verify` | closed statically; **real start open** | [R] a7: systemd 257 (debian trixie container), `--user` and system mode, rc 0 and no output; `systemd-analyze security --offline` scored 7.4 MEDIUM. **This run is not otherwise recorded in the repository.** Never started under a real init. | `systemd-analyze verify` then `systemctl --user start` on a real host |
 | launchd start | **open** | `plutil -lint` runs in `examples/agent-service/run.sh` on macOS; nothing was loaded [R: untestable-without-x.md] | `launchctl bootstrap gui/$(id -u) FILE` under a throwaway label |
 | SPDX validator | closed (not in the repo) | [R] a7: spdx-tools 0.8.3 accepted the generated `keystore.spdx` and rejected a deliberately broken file. **Not recorded anywhere else.** | `pyspdxtools -i keystore.spdx` after `build/keystore --release` |
 | OpenSSL 3 interop | closed | [R] [live-integration.md](live-integration.md) (OpenSSL 3.5.7 and 3.5.9), byte-for-byte checks in [format-compatibility.md](format-compatibility.md) | `KEYSTORE_LIVE=1 go test -tags integration ./integration/interop/` |
-| **linux/amd64 and darwin/amd64 execution** | **open** | Everything ran on arm64. `go vet` for linux and darwin on amd64 and the four-target release build succeed [R: a7 skeptic G21]. `macos-latest` is arm64 [I], so darwin/amd64 is never executed even in CI; `ubuntu-latest` is amd64 and will be the first amd64 run. | the first CI run; note darwin/amd64 as unverified in the release notes |
+| **linux/amd64 and darwin/amd64 execution** | **open** | Everything ran on arm64. `go vet` for linux and darwin on amd64 and the four-target release build succeed [R: gap-audit.md]. `macos-latest` is arm64 [I], so darwin/amd64 is never executed even in CI; `ubuntu-latest` is amd64 and will be the first amd64 run [I: from the runner names, not checked]. | the first CI run; note darwin/amd64 as unverified in the release notes |
 | Linux `-race` | **open** | the Linux tier is built without cgo [R: untestable-without-x.md] | `go test -race -count=1 ./...` on a Linux host (the CI `ci` job does this) |
 | macOS keychain (real `/usr/bin/security`) | **open** | the live test is written, double-gated and never executed; the default suite no longer runs the real `security` (decision 29; A7 G15) | first row of [untestable-without-x.md](untestable-without-x.md) |
 | `fsync` and power-loss durability | **open, untestable by kill** | [untestable-without-x.md](untestable-without-x.md) | same file |
-| **CI has never run on GitHub** | **unproven there** | The repository has no remote. The workflow was read and its steps were reproduced locally (staticcheck v0.8.2, the deadcode filter, gofmt, tidy, the systemd step in a container, `actionlint` clean [R: merge 1d06882]) but whether `setup-go` honours `go 1.27.0` plus `toolchain go1.27.2` from `go.mod` on a hosted runner is **inferred** [R: a7 skeptic M17]. The new `fuzz-all` job and the tagged vet step (decision 44) are likewise unproven on a runner. | push, let the three jobs go green once |
-| Reproducible release archives | **false by design** | binaries are byte-identical for a clean checkout; the archives embed timestamps and differ run to run [R: a7 gap-audit section 3; README says so] | none |
+| **CI has never run on GitHub** | **unproven there** | The repository has no remote. The workflow was read and its steps were reproduced locally (staticcheck v0.8.2, the deadcode filter, gofmt, tidy, the systemd step in a container, `actionlint` clean [R: merge 1d06882]) but whether `setup-go` honours `go 1.27.0` plus `toolchain go1.27.2` from `go.mod` on a hosted runner is **inferred** [R: gap-audit.md]. The new `fuzz-all` job and the tagged vet step (decision 44) are likewise unproven on a runner. | push, let the four jobs (`ci`, `ci-macos`, `fuzz`, `fuzz-all`) go green once |
+| Reproducible release archives | **false by design** | binaries are byte-identical for a clean checkout; the archives embed timestamps and differ run to run [R: gap-audit.md; README says so] | none |
 
 ## 3. Deliberately not open: decided, with the reason and where it is stated
 
-The corrected table from the A7 skeptic (its section 4). Corrections to the A7 auditor's table are
+The corrected table from the A7 skeptic. Corrections to the A7 auditor's table are
 marked.
 
 | Item | Why it was left | Where it is said |
@@ -63,7 +63,7 @@ marked.
 | A5 L12: `passwd` aborts on one corrupt entry without naming it | loud, no partial state | [silent-degradation.md](silent-degradation.md) |
 | A5 L13: any `security` failure is reported as "no keychain item" | documented; no stderr surfaced | SECURITY "Known limits" [V] |
 | A5 L14 and A7 G13: empty `KEYSTORE_PASSPHRASE=`/`KEYSTORE_KEYCHAIN=` count as unset | stated now | userguide Passphrases [V] |
-| A5 L15: the ring's directory is never checked | SECURITY says keep it private; `add` in a 0777 directory succeeds silently [R: a7] | SECURITY "Where the ring lives" [V] |
+| A5 L15: the ring's directory is never checked | SECURITY says keep it private; `add` in a 0777 directory succeeds silently [R: gap-audit.md] | SECURITY "Where the ring lives" [V] |
 | A5 L16/L17: `Server.Log` is nil by default | field comment says "if set"; the CLI sets it | `pkg/agent/server.go:51` [V] |
 | A5 L18: EMFILE log line every 50 ms | no stated guarantee | [silent-degradation.md](silent-degradation.md) |
 | A5 L19: pipes are unchecked by the redirect guard | documented. **Correction (A7 M11):** the auditor wrote "pipes and `>>` unchecked"; `>>` onto a loose regular file **is** refused [V: `export-priv >> f` on a 0644 file, rc 1, file unchanged] | SECURITY, userguide "Exporting private keys" [V] |
@@ -74,7 +74,7 @@ marked.
 | Unauthenticated `current`, entry order, entry set, rollback, ring identity | costed; no v2 (`ring_id` 30-50 lines, MAC 150-250 lines); `sign` names its key and takes `-expect-fp` | decision 39, format.md, SECURITY |
 | `-idle` is reset by any successful request, `P` included | documented | userguide, agent-protocol |
 | A7 G14: SIGINT inherited-ignored is overridden; a signal between `Listen` and `Notify` takes the default action | self-healing: the next start removes the stale socket [I]; SIGHUP inherited-ignored is respected | userguide agent paragraph [V] |
-| A7 G7: unreachable trailing-data branch in `Parse` | kept as the only guard if the peek is simplified; now commented | `internal/ringfile/ringfile.go` [V]; differential fuzz 10.0 M execs, 0 divergences [R: a7 skeptic G7] |
+| A7 G7: unreachable trailing-data branch in `Parse` | kept as the only guard if the peek is simplified; now commented | `internal/ringfile/ringfile.go` [V]; differential fuzz 10.0 M execs, 0 divergences [R: gap-audit.md] |
 | A7 G15: `TestGetMissing` | **deleted** (it asserted nothing: `Get` maps every failure to `ErrNotFound`) | decision 29 |
 | A7 G21: amd64 never executed | the first CI run verifies linux/amd64 | section 2 |
 | A7 M15: `keystore-agent: keystore agent:` doubled prefix | cosmetic | none |
@@ -83,22 +83,27 @@ marked.
 | Client peer-uid check needs a second uid | covered in a container by `TestCrossUID` and `linuxlive`, which are run by hand, not by `go test ./...` or CI | [topology-integration.md](topology-integration.md) |
 | Benchmarks were recorded on a loaded host; no regression gate | the document says re-record before gating | [benchmark-baselines.md](benchmark-baselines.md) |
 | `Keystore.Path` is reported by plain `deadcode` | public API; the CI filter excludes it | `ci.yml`, release record |
-| 15 equivalent, 12 unobservable and 10 seam-bound survivors of 417 mutants | each with its reason | [mutation-hardening.md](mutation-hardening.md) |
+| 15 equivalent, 12 unobservable, 10 seam-bound and 1 root-only (the passfile owner check; it passes as root in a Linux container) of the 38 surviving mutants of 417 | each with its reason | [mutation-hardening.md](mutation-hardening.md) |
 | Parse and agent allocation amplifications | fixed (W2-4-1, L1 dup entries, L1 readFrame); residual worst case about 8.6x the file for a valid 16 MiB ring | [defects-log.md](defects-log.md) |
 
 ## 4. What L4 must still do (not done here)
 
-Decide the version first (O1); then write release notes that supersede `release-v0.1.0.md` (O2), grouped
-fixes, additions and **breaking**, carrying the decision-42 migration steps (a redirected export into a
-file others can read is refused, `verify` exits 3, a shadowed passfile is announced or refused, no home
-directory and no ring path exits 2, negative `-ttl`/`-idle` refused, a nil `Signer` on the library's error paths,
-an empty library passphrase refused, the agent stopping on SIGHUP and on a lost socket) and the one new exported symbol, `agent.ErrNegativeLifetime` [R: a7
-G1: `go doc -all` v0.1.0 against `main`]; re-run the gate, `go vet -tags integration,topology ./...`, the
-private-name screen (a screen of tracked files for local scratch paths, private project names and personal names, run while writing this page, found only the owner handle in `CODEOWNERS` and `GOPRIVATE: github.com/netstar-labs` in `ci.yml` [V]; commit messages were not re-screened here), `build/keystore --release` and
-an SPDX validation; add the Apache-2.0 `LICENSE` and refresh the SBOM (O3); create the GitHub
-repository, enable private vulnerability reporting (SECURITY.md names it), set topics and description,
-add the inventory row (O6), push, let CI go green for the first time (section 2), then verify
-`go install github.com/netstar-labs/keystore/cmd/keystore@<tag>` from a clean environment and that
-`keystore version` is stamped (a `go install` build reports `dev (none)`). **Not done by the audit:**
-tagging, release notes, SBOM refresh, pushing, repository metadata, deleting branches, any real
-systemd or launchd start, the macOS cross-uid run, an amd64 run.
+1. Decide the version first (O1).
+2. Write release notes that supersede `release-v0.1.0.md` (O2), grouped fixes, additions and **breaking**,
+   with the decision-42 migration steps: a redirected export into a file others can read is refused;
+   `verify` exits 3; a shadowed passfile is announced or refused; no home directory and no ring path exits
+   2; negative `-ttl`/`-idle` refused; a nil `Signer` on the library's error paths; an empty library
+   passphrase refused; the agent stops on SIGHUP and on a lost socket. Add the one new exported symbol,
+   `agent.ErrNegativeLifetime` [R: gap-audit.md, `go doc -all` v0.1.0 against `main`].
+3. Re-run the gate, `go vet -tags integration,topology ./...`, the private-name screen (a screen of tracked
+   files for local scratch paths, private project names and personal names, run while writing this page,
+   found only the owner handle in `CODEOWNERS` and `GOPRIVATE: github.com/netstar-labs` in `ci.yml` [V];
+   commit messages were not re-screened here), `build/keystore --release` and an SPDX validation.
+4. Add the Apache-2.0 `LICENSE` and refresh the SBOM (O3).
+5. Create the GitHub repository, enable private vulnerability reporting (SECURITY.md names it), set topics
+   and description, add the inventory row (O6), push, and let CI go green for the first time (section 2).
+6. Verify `go install github.com/netstar-labs/keystore/cmd/keystore@<tag>` from a clean environment and that
+   `keystore version` is stamped (a `go install` build reports `dev (none)`).
+
+**Not done by the audit:** tagging, release notes, SBOM refresh, pushing, repository metadata, deleting
+branches, any real systemd or launchd start, the macOS cross-uid run, an amd64 run.

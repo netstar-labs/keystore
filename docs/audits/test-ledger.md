@@ -45,7 +45,7 @@ the package) [R]; blank where none was recorded.
 | `cmd/keystore` | 63 | 79.1 | 93.4 | verb tables, goldens, exit codes, fuzz, bench |
 | `cmd/keystore-agent` | 16 | 91.2 | 93.2 | flags, signals, log sink |
 | `build` | 3 | n/a | no statements | the release script, run in a temporary git repository |
-| `examples/secrets`, `examples/signed-requests` | 4, 5 | 65.7, 79.8 | 65.7, 79.8 | unit + `run.sh` |
+| `examples/secrets`, `examples/signed-requests` | 4, 5 | 65.7, 79.8 | 71.4, 79.8 | unit + `run.sh` |
 | other `examples/*` | 1 each | n/a | no statements | `go test` runs the `run.sh` |
 | `integration/topology` | tagged only | n/a | no test files under default tags | see [topology-integration.md](topology-integration.md) |
 
@@ -55,7 +55,7 @@ the package) [R]; blank where none was recorded.
 counting `+func Test` lines; a merge that rewrote a test counts the new one]. Fuzz and benchmark
 functions are counted separately. Merges that add only a regression test for a fix are grouped.
 
-### Wave 2: regression tests that came with the fixes (red first, then green)
+### Wave 2 (A3 findings): regression tests that came with the fixes (red first, then green)
 
 Each fix branch wrote its test before the fix; the fix skeptic reverted the fix on a copy and required the
 test to fail. Counts are per merge [V].
@@ -87,7 +87,7 @@ test to fail. Counts are per merge [V].
 | `5075321` | L2 typed nil Signer | 2 | `s == nil` on every error path |
 | `b04b179` | L1 duplicate `entries` | 0 added, 1 replaced | the old last-wins test was retired (commit `760afdf`) and replaced by a rejection test |
 
-### Wave 3: A6 golden formats (`77f56c7`, +14 Test) [R: [format-compatibility.md](format-compatibility.md)]
+### Wave 3 (A6): golden formats (`77f56c7`, +14 Test) [R: [format-compatibility.md](format-compatibility.md)]
 
 Every encoded artifact has fixed bytes in a test, built independently of the code (Python scripts from
 `docs/format.md` and RFC 8410; PEM, SPKI hash and a signature cross-checked with OpenSSL 3.5.9): ring bytes,
@@ -96,7 +96,7 @@ four edge-case fixtures in `testdata/` (`ring-minimal.ks`, `ring-empty.ks`, `rin
 the raw bytes on a real socket, the agent lock-file name, PEM text, fingerprint format, `sign` output, the
 keychain argv. 30 mutants by the skeptic.
 
-### Wave 5: L2
+### Wave 5 (L2)
 
 | Merge | +Test | Fuzz | Bench | What it guards |
 |---|---|---|---|---|
@@ -139,14 +139,14 @@ Budgets: the fix skeptic ran 70 s per target without a crash [R: merge `f33cecf`
 44; unproven on a hosted runner). Two known survivors the fuzz skeptic named (trailing data, a 13-byte nonce)
 went to mutation hardening [R].
 
-### Wave 6 and 7: live and topology tiers (tagged, not part of `go test ./...`)
+### Waves 6 and 7 (L3, L3b): live and topology tiers (tagged, not part of `go test ./...`)
 
 | Merge | +Test | What it guards |
 |---|---|---|
 | `a35b07a` L3 | 14 | the Linux container tier (whole suite as cross-compiled binaries, as root and as uid 1000), OpenSSL interop (4 tests), the skip-versus-fail classifier (hermetic), the keychain tier (written, double-gated, never executed). See [live-integration.md](live-integration.md). 40/40 on alpine 3.23 and debian 13 as root and uid 1000; 11 production mutants make the live tests fail [R: merge message] |
 | `7dd11c1` L3b | 11 | contention, SIGKILL crash loop, cross-uid, agent chaos (hammer/restart, TTL, idle, racing starts, stale socket, socket removed), fleet. See [topology-integration.md](topology-integration.md); 5 hardening mutants killed, no false failures on unmutated code (3 seeds on macOS, a container crash loop, the fleet) [R: merge message] |
 
-### Wave 8: A7 (`8a90392`, `07c6d65`, `0632c47`, `bc08d87`, `1d06882`)
+### Wave 8 (A7) (`8a90392`, `07c6d65`, `0632c47`, `bc08d87`, `1d06882`)
 
 +3 (release script in a temporary repo), +1 (verify help), +1 (forged log line), +2 (agent `-h`, an unknown
 flag still exits 1), +1 -1 (off-darwin keychain stub added, `TestGetMissing` deleted). Plus one CI job that
