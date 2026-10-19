@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/netstar-labs/keystore/integration/internal/livetest"
@@ -31,10 +30,8 @@ func TestLoginKeychainRoundTrip(t *testing.T) {
 	}
 	var b [8]byte
 	rand.Read(b[:])
+	// Never the real "keystore" item: the prefix plus 64 random bits cannot collide with it.
 	svc := "keystore-l3-throwaway-" + hex.EncodeToString(b[:])
-	if svc == "keystore" || !strings.HasPrefix(svc, "keystore-l3-throwaway-") {
-		t.Fatal("refusing to touch a non-throwaway service")
-	}
 	const secret = "l3 throwaway passphrase"
 
 	t.Cleanup(func() { exec.Command(security, "delete-generic-password", "-s", svc, "-a", keychain.Account).Run() })
@@ -60,7 +57,9 @@ func TestLoginKeychainRoundTrip(t *testing.T) {
 	if r := livetest.Run(t, ks, dir, nil, nil, "keygen", "-keystore", ring, "-passfile", pf, "-id", "k"); r.Exit != 0 {
 		t.Fatalf("keygen: %s", r.Stderr)
 	}
-	r := livetest.Run(t, ks, dir, []byte("msg"), []string{"KEYSTORE_KEYCHAIN=" + svc}, "sign", "-keystore", ring)
+	// The real HOME, not a temp one: security locates the login keychain through it. (Never
+	// executed by the audit, so whether this is enough is untried; see untestable-without-x.md.)
+	r := livetest.Run(t, ks, os.Getenv("HOME"), []byte("msg"), []string{"KEYSTORE_KEYCHAIN=" + svc}, "sign", "-keystore", ring)
 	if r.Exit != 0 {
 		t.Fatalf("sign with the passphrase from the keychain: exit %d: %s", r.Exit, r.Stderr)
 	}

@@ -51,7 +51,7 @@ func goCmd(t *testing.T, dir string, args ...string) string {
 
 // buildStage cross-compiles everything the container needs into a fresh directory and
 // returns it with the manifest of test binaries.
-func buildStage(t *testing.T, root string) string {
+func buildStage(t *testing.T, root string) (stage string, packages int) {
 	t.Helper()
 	stage, err := os.MkdirTemp("", "ksl3-") // not t.TempDir: it must be a short path the VM can mount
 	if err != nil {
@@ -104,10 +104,11 @@ func buildStage(t *testing.T, root string) string {
 			}
 			goCmd(t, root, append(c, "-o", filepath.Join(stage, "tests", name+".test"), "./"+rel)...)
 			manifest.WriteString(name + "\t" + rel + "\n")
+			packages++
 		}
 	}
 	must("manifest", []byte(manifest.String()))
-	return stage
+	return stage, packages
 }
 
 // TestLinuxTier runs the whole suite, as root and as uid 1000, in each image.
@@ -122,7 +123,7 @@ func TestLinuxTier(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go toolchain on PATH: cannot cross-compile")
 	}
-	stage := buildStage(t, root)
+	stage, nManifest := buildStage(t, root)
 	for _, img := range images {
 		t.Run(strings.NewReplacer(":", "_", "/", "_").Replace(img), func(t *testing.T) {
 			if why := imageReason(ctx, r, img); why != "" {
@@ -132,7 +133,7 @@ func TestLinuxTier(t *testing.T) {
 			defer cancel()
 			out, exit, err := r.Run(rctx, "container", "run", "--rm", "-m", "2g", "-c", "4",
 				"-v", stage+":/opt/ks:ro", "-v", root+":/src:ro", img, "sh", "/opt/ks/inside.sh")
-			v, why := classifyRun(out, exit, err)
+			v, why := classifyRun(out, exit, err, nManifest)
 			for _, l := range strings.Split(out, "\n") {
 				if strings.HasPrefix(l, "KSL3 ") {
 					t.Log(l)

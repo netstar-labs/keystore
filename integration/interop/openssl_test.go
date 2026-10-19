@@ -23,12 +23,8 @@ import (
 	"github.com/netstar-labs/keystore/internal/kdf"
 )
 
-const pass = "interop test passphrase, long enough"
-
 type env struct {
-	t    *testing.T
-	dir  string
-	ks   string
+	*livetest.Env
 	ring string
 	pf   string
 }
@@ -64,57 +60,31 @@ func setup(t *testing.T) *env {
 	if _, err := openssl(t, nil, "genpkey", "-algorithm", "ed25519"); err != nil {
 		t.Skipf("this openssl cannot generate Ed25519 keys: %v", err)
 	}
-	dir := t.TempDir()
-	e := &env{t: t, dir: dir, ks: livetest.Binaries(t), ring: filepath.Join(dir, "r.ks"), pf: filepath.Join(dir, "pf")}
-	if err := os.WriteFile(e.pf, []byte(pass+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return e
-}
-
-func (e *env) keystore(stdin []byte, args ...string) livetest.Result {
-	e.t.Helper()
-	return livetest.Run(e.t, filepath.Join(e.ks, "keystore"), e.dir, stdin, nil, args...)
-}
-
-func (e *env) write(name string, b []byte) string {
-	e.t.Helper()
-	p := filepath.Join(e.dir, name)
-	if err := os.WriteFile(p, b, 0o600); err != nil {
-		e.t.Fatal(err)
-	}
-	return p
-}
-
-func (e *env) ok(r livetest.Result, what string) livetest.Result {
-	e.t.Helper()
-	if r.Exit != 0 {
-		e.t.Fatalf("%s: exit %d\nstdout: %s\nstderr: %s", what, r.Exit, r.Stdout, r.Stderr)
-	}
-	return r
+	le := livetest.NewEnv(t)
+	return &env{Env: le, ring: filepath.Join(le.Dir, "r.ks"), pf: le.Passfile()}
 }
 
 // keystore signs, OpenSSL verifies; a tampered message is rejected by OpenSSL.
 func TestKeystoreSignsOpenSSLVerifies(t *testing.T) {
 	e := setup(t)
-	pub := e.write("k.pub", []byte(e.ok(e.keystore(nil, "keygen", "-keystore", e.ring, "-passfile", e.pf, "-id", "k"), "keygen").Stdout))
-	msg := e.write("msg", []byte("hello from keystore\x00\xff binary too"))
-	sig := filepath.Join(e.dir, "msg.sig")
-	e.ok(e.keystore(nil, "sign", "-keystore", e.ring, "-passfile", e.pf, "-in", msg, "-raw", "-o", sig), "sign")
+	pub := e.Write("k.pub", []byte(e.OK(e.KS(nil, "keygen", "-keystore", e.ring, "-passfile", e.pf, "-id", "k"), "keygen").Stdout))
+	msg := e.Write("msg", []byte("hello from keystore\x00\xff binary too"))
+	sig := filepath.Join(e.Dir, "msg.sig")
+	e.OK(e.KS(nil, "sign", "-keystore", e.ring, "-passfile", e.pf, "-in", msg, "-raw", "-o", sig), "sign")
 	if out, err := openssl(t, nil, "pkeyutl", "-verify", "-pubin", "-inkey", pub, "-rawin", "-in", msg, "-sigfile", sig); err != nil || !strings.Contains(out, "Signature Verified Successfully") {
 		t.Fatalf("openssl rejected a keystore signature: %q %v", out, err)
 	}
-	bad := e.write("bad", []byte("hello from keystore\x00\xff binary tooX"))
+	bad := e.Write("bad", []byte("hello from keystore\x00\xff binary tooX"))
 	if out, err := openssl(t, nil, "pkeyutl", "-verify", "-pubin", "-inkey", pub, "-rawin", "-in", bad, "-sigfile", sig); err == nil {
 		t.Fatalf("known-bad: openssl accepted a signature over a different message: %q", out)
 	}
 	// the base64 form (the default output) decodes to the same 64 bytes
-	b64 := e.ok(e.keystore(nil, "sign", "-keystore", e.ring, "-passfile", e.pf, "-in", msg), "sign base64").Stdout
+	b64 := e.OK(e.KS(nil, "sign", "-keystore", e.ring, "-passfile", e.pf, "-in", msg), "sign base64").Stdout
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
 	if err != nil || len(raw) != 64 {
 		t.Fatalf("default signature output is not base64 of 64 bytes: %v %d", err, len(raw))
 	}
-	if out, err := openssl(t, nil, "pkeyutl", "-verify", "-pubin", "-inkey", pub, "-rawin", "-in", msg, "-sigfile", e.write("b64.raw", raw)); err != nil {
+	if out, err := openssl(t, nil, "pkeyutl", "-verify", "-pubin", "-inkey", pub, "-rawin", "-in", msg, "-sigfile", e.Write("b64.raw", raw)); err != nil {
 		t.Fatalf("openssl rejected the base64-decoded signature: %q %v", out, err)
 	}
 }
@@ -122,7 +92,7 @@ func TestKeystoreSignsOpenSSLVerifies(t *testing.T) {
 // OpenSSL signs, keystore verifies (exit 0); tampered -> exit 3, not a generic failure.
 func TestOpenSSLSignsKeystoreVerifies(t *testing.T) {
 	e := setup(t)
-	priv := filepath.Join(e.dir, "o.priv")
+	priv := filepath.Join(e.Dir, "o.priv")
 	if _, err := openssl(t, nil, "genpkey", "-algorithm", "ed25519", "-out", priv); err != nil {
 		t.Fatal(err)
 	}
@@ -130,24 +100,24 @@ func TestOpenSSLSignsKeystoreVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pub := e.write("o.pub", []byte(pubPEM))
-	msg := e.write("m", []byte("signed by openssl"))
-	sig := filepath.Join(e.dir, "m.sig")
+	pub := e.Write("o.pub", []byte(pubPEM))
+	msg := e.Write("m", []byte("signed by openssl"))
+	sig := filepath.Join(e.Dir, "m.sig")
 	if _, err := openssl(t, nil, "pkeyutl", "-sign", "-inkey", priv, "-rawin", "-in", msg, "-out", sig); err != nil {
 		t.Fatal(err)
 	}
-	e.ok(e.keystore(nil, "verify", "-pub", pub, "-sig", sig, "-in", msg), "verify an openssl signature")
-	bad := e.write("m2", []byte("signed by opensslX"))
-	if r := e.keystore(nil, "verify", "-pub", pub, "-sig", sig, "-in", bad); r.Exit != 3 {
+	e.OK(e.KS(nil, "verify", "-pub", pub, "-sig", sig, "-in", msg), "verify an openssl signature")
+	bad := e.Write("m2", []byte("signed by opensslX"))
+	if r := e.KS(nil, "verify", "-pub", pub, "-sig", sig, "-in", bad); r.Exit != 3 {
 		t.Fatalf("known-bad: tampered message exit = %d, want 3\n%s", r.Exit, r.Stderr)
 	}
 
 	// An OpenSSL-generated key imported into a ring signs signatures OpenSSL accepts, and the
 	// ring reports the same fingerprint OpenSSL derives.
-	e.ok(e.keystore(nil, "init", "-keystore", e.ring), "init")
-	e.ok(e.keystore(nil, "import", "-keystore", e.ring, "-passfile", e.pf, "-id", "imp", "-key", priv), "import openssl key")
-	sig2 := filepath.Join(e.dir, "m.sig2")
-	e.ok(e.keystore(nil, "sign", "-keystore", e.ring, "-passfile", e.pf, "-id", "imp", "-in", msg, "-raw", "-o", sig2), "sign with imported key")
+	e.OK(e.KS(nil, "init", "-keystore", e.ring), "init")
+	e.OK(e.KS(nil, "import", "-keystore", e.ring, "-passfile", e.pf, "-id", "imp", "-key", priv), "import openssl key")
+	sig2 := filepath.Join(e.Dir, "m.sig2")
+	e.OK(e.KS(nil, "sign", "-keystore", e.ring, "-passfile", e.pf, "-id", "imp", "-in", msg, "-raw", "-o", sig2), "sign with imported key")
 	if out, err := openssl(t, nil, "pkeyutl", "-verify", "-pubin", "-inkey", pub, "-rawin", "-in", msg, "-sigfile", sig2); err != nil {
 		t.Fatalf("openssl rejected a signature from the imported key: %q %v", out, err)
 	}
@@ -163,10 +133,10 @@ func TestOpenSSLSignsKeystoreVerifies(t *testing.T) {
 // ring's fingerprint equals the SHA-256 of the SPKI DER that OpenSSL produces.
 func TestExportsAndFingerprintMatchOpenSSL(t *testing.T) {
 	e := setup(t)
-	e.ok(e.keystore(nil, "keygen", "-keystore", e.ring, "-passfile", e.pf, "-id", "k"), "keygen")
-	pubPEM := e.ok(e.keystore(nil, "export-pub", "-keystore", e.ring, "-id", "k"), "export-pub").Stdout
-	privFile := filepath.Join(e.dir, "k.priv")
-	e.ok(e.keystore(nil, "export-priv", "-keystore", e.ring, "-passfile", e.pf, "-id", "k", "-o", privFile), "export-priv")
+	e.OK(e.KS(nil, "keygen", "-keystore", e.ring, "-passfile", e.pf, "-id", "k"), "keygen")
+	pubPEM := e.OK(e.KS(nil, "export-pub", "-keystore", e.ring, "-id", "k"), "export-pub").Stdout
+	privFile := filepath.Join(e.Dir, "k.priv")
+	e.OK(e.KS(nil, "export-priv", "-keystore", e.ring, "-passfile", e.pf, "-id", "k", "-o", privFile), "export-priv")
 
 	if _, err := openssl(t, []byte(pubPEM), "pkey", "-pubin", "-noout"); err != nil {
 		t.Fatalf("openssl cannot parse export-pub: %v", err)
@@ -191,7 +161,7 @@ func TestExportsAndFingerprintMatchOpenSSL(t *testing.T) {
 	if viaOpenSSL := "SHA256:" + base64.RawStdEncoding.EncodeToString([]byte(dg)); viaOpenSSL != want {
 		t.Fatalf("hash disagreement inside the test: %s vs %s", viaOpenSSL, want)
 	}
-	list := e.ok(e.keystore(nil, "list", "-keystore", e.ring), "list").Stdout
+	list := e.OK(e.KS(nil, "list", "-keystore", e.ring), "list").Stdout
 	if !strings.Contains(list, want) {
 		t.Fatalf("fingerprint %s (openssl-derived) not in `keystore list`:\n%s", want, list)
 	}

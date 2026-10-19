@@ -69,6 +69,59 @@ func Binaries(t *testing.T) string {
 	return dir
 }
 
+// Passphrase is the ring passphrase the live tests use.
+const Passphrase = "live test passphrase, long enough"
+
+// Env is one test's scratch directory and the keystore binaries. The directory is short
+// (unix socket paths are length-limited) and doubles as HOME for the processes it runs.
+type Env struct {
+	T   *testing.T
+	Dir string
+	Bin string // directory holding keystore and keystore-agent
+}
+
+// NewEnv makes an Env, building the binaries if KEYSTORE_BIN is unset.
+func NewEnv(t *testing.T) *Env {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "kl-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return &Env{T: t, Dir: dir, Bin: Binaries(t)}
+}
+
+// KS runs keystore with the given stdin.
+func (e *Env) KS(stdin []byte, args ...string) Result {
+	e.T.Helper()
+	return Run(e.T, filepath.Join(e.Bin, "keystore"), e.Dir, stdin, nil, args...)
+}
+
+// OK fails the test unless r exited 0, and returns r.
+func (e *Env) OK(r Result, what string) Result {
+	e.T.Helper()
+	if r.Exit != 0 {
+		e.T.Fatalf("%s: exit %d\nstdout: %s\nstderr: %s", what, r.Exit, r.Stdout, r.Stderr)
+	}
+	return r
+}
+
+// Write creates a 0600 file in Dir and returns its path.
+func (e *Env) Write(name string, b []byte) string {
+	e.T.Helper()
+	p := filepath.Join(e.Dir, name)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		e.T.Fatal(err)
+	}
+	return p
+}
+
+// Passfile writes Passphrase to a 0600 file in Dir and returns its path.
+func (e *Env) Passfile() string {
+	e.T.Helper()
+	return e.Write("pf", []byte(Passphrase+"\n"))
+}
+
 // Result is one finished process.
 type Result struct {
 	Stdout, Stderr string
