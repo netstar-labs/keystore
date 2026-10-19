@@ -56,6 +56,13 @@ keystore keygen -keystore "$WORK/attacker.ks" -passfile "$PASS" -id evil >/dev/n
 keystore sign -keystore "$WORK/attacker.ks" -passfile "$PASS" -in "$T/SHA256SUMS" -o "$T/SHA256SUMS.sig"
 expect_refusal "release signed by another key" "does not verify" deploy "$T"
 
+step "a signature that does not verify is exit 3, distinct from a check that could not be made"
+set +e; (cd "$T" && keystore verify -pub "$DEPLOY/trust/release.pub" -sig SHA256SUMS.sig -in SHA256SUMS) >/dev/null 2>&1; rc=$?
+(cd "$T" && keystore verify -pub "$DEPLOY/trust/release.pub" -sig SHA256SUMS.sig -in /nonexistent) >/dev/null 2>&1; rc2=$?; set -e
+[ "$rc" = 3 ] || fail "a bad signature exited $rc, want 3"
+[ "$rc2" = 1 ] || fail "an unreadable input exited $rc2, want 1"
+ok "bad signature: exit 3; unreadable input: exit 1"
+
 step "agent down: the CI job cannot sign, so nothing unsigned ships"
 stop_agent
 expect_refusal "signing with the agent stopped" "no such file|connection refused" \

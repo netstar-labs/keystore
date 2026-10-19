@@ -11,6 +11,9 @@ manifest. The deploy host runs `keystore verify` on the manifest, then checks th
 and installs only if both pass. Signing the manifest instead of the artifact keeps the
 signed message small (the agent accepts up to 1 MiB) and lets one signature cover many files.
 
+A signature that does not verify exits 3, an input that cannot be read exits 1, so a deploy
+script can tell a forgery from a broken check.
+
 **The deploy host refuses:** an artifact replaced after signing; a manifest rewritten to
 match a replaced artifact; a release signed by any other key. With the agent stopped, the CI
 job cannot sign at all.

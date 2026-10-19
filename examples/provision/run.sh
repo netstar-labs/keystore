@@ -35,5 +35,14 @@ expect_refusal "a world-readable passfile" "must be 0600" keystore add -keystore
 expect_refusal "a short passphrase for a new ring" "at least 12" env KEYSTORE_PASSPHRASE=short keystore keygen -keystore "$WORK/other.ks" -id x
 expect_refusal "a second passphrase in the same ring" "does not match this ring" env KEYSTORE_PASSPHRASE='some other passphrase' keystore add -keystore "$RING" -id y
 expect_refusal "re-initialising an existing ring" "already exists" keystore init -keystore "$RING"
+# A passphrase set under two sources is ambiguous: unlocking says which wins, establishing refuses.
+expect_refusal "setting a passphrase while KEYSTORE_PASSPHRASE shadows -passfile" "KEYSTORE_PASSPHRASE is set" \
+    env KEYSTORE_PASSPHRASE='an environment passphrase' keystore keygen -keystore "$WORK/shadow.ks" -passfile "$PASS" -id x
+# Redirecting a private key makes the shell create the file at the umask's mode: refused unless 0600 first.
+expect_refusal "export-priv redirected into a world-readable file" "file others can read" \
+    bash -c 'umask 022; keystore export-priv -keystore "$1" -passfile "$2" -id prod-2026 > "$3"' _ "$RING" "$PASS" "$WORK/leaked.pem"
+[ ! -s "$WORK/leaked.pem" ] || fail "a refused export-priv wrote key material to $WORK/leaked.pem"
+# No ring path and no home (cron, a system unit) is a usage error, never a ring in the working directory.
+expect_refusal "no ring path and no home directory" "no ring path" env -i PATH="$PATH" keystore list
 
 done_ok

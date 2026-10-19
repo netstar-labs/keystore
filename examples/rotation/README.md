@@ -16,7 +16,8 @@ verifier at once. Verifiers pin public keys, so the safe rotation is an overlap,
 
 The script checks every transition: `current` does not move early, both keys verify during
 the overlap, and after retirement a 2026 signature is no longer accepted. It also shows that
-the last signing key cannot be removed without `-force`.
+the last signing key cannot be removed without `-force`. Signing is pinned with `-expect-fp`
+(the ring's `current` marker is unauthenticated), and a pin naming the wrong key is refused.
 
 **Does not protect against:** a verifier that is never updated (it rejects new signatures at
 step 3 — publish before you switch). Revoking a *compromised* key is not rotation: remove it

@@ -10,7 +10,9 @@ passphrase needed). The public key comes from `keygen`'s output, not from a late
 pub`: `export-pub` reads a copy stored in the ring that is checked only when the entry is
 unlocked, so whoever can write the ring could make it print a different key. The script then
 proves the guard rails: a world-readable passfile, a short new passphrase, a second
-passphrase in the same ring, and re-initialising an existing ring are all refused.
+passphrase in the same ring, re-initialising an existing ring, setting a passphrase while
+`KEYSTORE_PASSPHRASE` shadows `-passfile`, redirecting `export-priv` into a world-readable file,
+and running with no ring path and no home directory are all refused.
 
 **Does not protect against:** anyone who can read *both* the ring and the passfile — keep the
 passfile out of the ring's backups, or use the agent so services never need it. Root.

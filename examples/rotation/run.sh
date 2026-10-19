@@ -18,11 +18,16 @@ verify_any() {
     done
     echo "no trusted key verifies $1"; return 1
 }
-sign_now() { printf '%s' "$1" > "$WORK/$2.msg"; K sign -in "$WORK/$2.msg" -o "$WORK/$2.sig" 2>/dev/null; }
+# fp ID: a key's fingerprint as list shows it (record it when the key is created).
+fp() { keystore list -keystore "$RING" | awk -v id="$1" '$1==id||$2==id{print $NF}'; }
+# sign_now MSG NAME ID: pin the signing key. The current marker in the ring file is not
+# authenticated, so a script that must sign under one key says which (-expect-fp) rather
+# than trusting whatever the file names; the "signing with ..." line on stderr shows it.
+sign_now() { printf '%s' "$1" > "$WORK/$2.msg"; K sign -in "$WORK/$2.msg" -o "$WORK/$2.sig" -expect-fp "$(fp "$3")"; }
 
 step "1. steady state: 2026 key signs; verifiers trust it"
 K keygen -id prod-2026 > "$TRUST/prod-2026.pub"
-sign_now "made under 2026" old
+sign_now "made under 2026" old prod-2026
 verify_any "$WORK/old.sig" "$WORK/old.msg"; ok "2026 signature accepted"
 
 step "2. mint the 2027 key beside it (signing does not change yet)"
@@ -36,8 +41,9 @@ ls "$TRUST"
 
 step "4. switch signing to 2027 — no verifier notices"
 R use -id prod-2027
-sign_now "made under 2027" new
+sign_now "made under 2027" new prod-2027
 verify_any "$WORK/new.sig" "$WORK/new.msg"; ok "2027 signature accepted"
+expect_refusal "a pin that names a different key than the one that would sign" "expected SHA256" sign_now "wrong key" bad prod-2026
 verify_any "$WORK/old.sig" "$WORK/old.msg"; ok "2026 signatures still accepted during the overlap"
 
 step "5. overlap over: retire 2026 everywhere"
