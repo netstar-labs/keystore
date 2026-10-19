@@ -74,7 +74,9 @@ its socket is left alone.
 ## Client obligations
 
 The reference client (`pkg/agent.Dial`) verifies every returned signature against the
-agent's public key before returning it, and refuses prehash or context options.
+agent's public key before returning it, and refuses prehash or context options. It shows
+at most 256 bytes of an error reply's text, escaped, and marks a cut with `...`: the agent
+is not trusted to bound or sanitise what it says.
 
 `Dial` does not pin the agent's key: it trusts whatever 32-byte key the agent returns for
 `'P'` and checks signatures only against it. A caller that wants a specific key compares
