@@ -63,6 +63,10 @@ func (c *Client) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) ([]by
 	return sig, nil
 }
 
+// maxStatusText bounds how much of an error reply the client shows; the agent's own
+// messages are far shorter.
+const maxStatusText = 256
+
 func (c *Client) roundTrip(op byte, payload []byte) ([]byte, error) {
 	if len(payload) > MaxPayload {
 		return nil, ErrTooLarge
@@ -85,7 +89,13 @@ func (c *Client) roundTrip(op byte, payload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("keystore agent: %w", err)
 	}
 	if status != StatusOK {
-		return nil, fmt.Errorf("keystore agent: %q", p) // bytes from the other end of the socket
+		// Bytes from the other end of the socket: quoted, and cut short so a hostile peer
+		// cannot flood the terminal with a megabyte of status text.
+		more := ""
+		if len(p) > maxStatusText {
+			p, more = p[:maxStatusText], "..."
+		}
+		return nil, fmt.Errorf("keystore agent: %q%s", p, more)
 	}
 	return p, nil
 }

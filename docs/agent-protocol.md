@@ -46,7 +46,7 @@ carry several requests in sequence; clients use one per connection.
 | `b0` | Meaning | Payload |
 |---|---|---|
 | `0x00` | ok | as above |
-| `0x01` | error | a short ASCII message; never secret material |
+| `0x01` | error | a short ASCII message; never secret material. The client shows at most 256 bytes of the raw status, shown escaped, so a hostile peer cannot flood the terminal |
 
 An unknown operation gets an error reply and the connection is closed.
 

@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -535,6 +536,68 @@ func TestClientQuotesTheAgentsErrorText(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error lost the agent's message: %q", err)
+	}
+}
+
+// The escaping above does not bound the text: a fake agent can answer with a megabyte of
+// escapes and flood the terminal. The client shows the first 256 raw bytes, escaped, and
+// "..." after the closing quote when it cut. The rows compare the whole error, so a moved
+// cap, an off-by-one, a missing marker or a cut applied after quoting (which could end
+// mid-escape) each fail.
+func TestClientBoundsTheAgentsErrorText(t *testing.T) {
+	const prefix = "keystore agent: "
+	for _, tc := range []struct {
+		name    string
+		payload []byte
+		shown   int // raw bytes expected to be shown
+		cut     bool
+	}{
+		{"255 bytes", bytes.Repeat([]byte("A"), 255), 255, false},
+		{"256 bytes", bytes.Repeat([]byte("A"), 256), 256, false},
+		{"257 bytes", bytes.Repeat([]byte("A"), 257), 256, true},
+		{"1 MiB of ASCII", bytes.Repeat([]byte("A"), MaxPayload), 256, true},
+		{"1 MiB of escapes", bytes.Repeat([]byte("\x1b[31mX\n"), MaxPayload/7), 256, true},
+		// Every byte quotes to 4 characters; a cut after quoting would land mid-escape.
+		{"control bytes", bytes.Repeat([]byte{0x01}, 400), 256, true},
+		// "é" is two bytes straddling byte 256: the first half is shown as \xc3, safely.
+		{"rune across the cut", append(bytes.Repeat([]byte("A"), 255), []byte("é and more")...), 256, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sock := filepath.Join(sockDir(t), "fake.sock")
+			ln, err := net.Listen("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ln.Close()
+			go func() {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				defer c.Close()
+				readFrame(c)
+				writeFrame(c, StatusErr, tc.payload)
+			}()
+			_, err = Dial(sock)
+			if err == nil {
+				t.Fatal("Dial succeeded against an error reply")
+			}
+			want := prefix + strconv.Quote(string(tc.payload[:tc.shown]))
+			if tc.cut {
+				want += "..."
+			}
+			if err.Error() != want {
+				t.Errorf("error (%d bytes) = %.120q...\nwant (%d bytes) %.120q...", len(err.Error()), err, len(want), want)
+			}
+			if len(err.Error()) > 1100 { // worst case: 256 bytes at 4 characters each, plus framing
+				t.Errorf("client error is %d bytes, want at most 1100", len(err.Error()))
+			}
+			for _, r := range err.Error() {
+				if r < 0x20 || r == 0x7f {
+					t.Fatalf("raw control character %U in error %.80q", r, err)
+				}
+			}
+		})
 	}
 }
 
