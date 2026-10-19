@@ -6,9 +6,15 @@ Recorded for the L2 benchmark phase. All benchmarks live in new `bench_test.go` 
 
 ## READ THIS FIRST: how far to trust the numbers
 
-* **Allocation numbers (B/op, allocs/op, allocB/inB) are deterministic** and are the
-  baselines to guard with a threshold. They agree across macOS and Linux to within a few
-  percent (counts differ by a handful of runtime allocations).
+* **Allocation numbers (B/op, allocs/op, allocB/inB) are far more stable than timings**
+  and are the baselines to guard with a threshold, but they are not exact: Parse,
+  Derive and agent sign repeated within 1% between runs; Marshal varied 3% to 5% and
+  allocs/op by 1 to 3 between runs (a skeptic's remeasurement agrees). Use a tolerance
+  (see the 20% rule below). They agree across macOS and Linux to within a few percent.
+* **The agent rows were re-recorded after rebasing onto main 58408dc**, which includes the
+  incremental `readFrame` (fix L1-readframe-incremental). Every other package's tables
+  were recorded on the earlier base; the later main commits did not touch the code those
+  benchmarks exercise beyond a few lines (inferred; not re-measured).
 * **Timing numbers on the macOS host below were recorded on a heavily loaded machine**:
   the load average was 50 to 75 on 8 cores for the whole run, because other agents were
   compiling and benchmarking at the same time (load recorded before and after each
@@ -57,7 +63,10 @@ tables below are from the per-package rerun.)
 ## Lightly loaded reference (single sample, host, load average not recorded)
 
 Taken early in the session, `-benchtime` 100 ms to 300 ms, one sample each. Indicative of
-an unloaded M1 Pro; not a baseline. The headline figures:
+an unloaded M1 Pro; not a baseline. Every figure here, including "about 142 ms" for one
+production KDF run, is one light-load sample (the Linux VM measured 188 ms). The agent
+rows from this sample were dropped because the agent code changed (see below). The
+headline figures:
 
 | benchmark | ns/op |
 |---|---|
@@ -71,9 +80,6 @@ an unloaded M1 Pro; not a baseline. The headline figures:
 | `seal.Seal` / `Open` 32 B | 741 ns / 459 ns |
 | `ringfile.Parse` 1000 entries | 5.0 ms (89 MB/s) |
 | `ringfile.Save` 2 entries | 9.1 ms (APFS, fsync without F_FULLFSYNC) |
-| `agent` sign round trip 64 B, 1 client | 112.6 us |
-| `ed25519.Sign` 64 B in process | 20.1 us |
-| `agent.Dial` | 41.6 us |
 | `cmd` `run(sign)` at minimum KDF | 5.4 ms |
 
 ## Real-cost end to end: `keystore sign` on the built binary
@@ -84,14 +90,14 @@ loaded host (load average 58 to 76):
 
 mean 0.476 s, median 0.453 s, stdev 0.114 s, min 0.331 s, max 0.706 s.
 
-The floor is the single KDF run (about 142 ms unloaded, from the table above) plus
+The floor is the single KDF run (about 142 ms in one light-load sample, from the table above) plus
 process start and ring read; the observed values are inflated by the load and are not the
 production latency of an idle machine. Re-run `e2e` on an idle machine for a citable figure.
 
 The `cmd/keystore` benchmarks below run at the MINIMUM KDF cost. They are NOT production
-latencies: at the shipped cost each unlock adds about 140 ms.
+latencies: at the shipped cost each unlock adds on the order of 140 ms (one light-load sample).
 
-## Results: macOS arm64 host (count=10, LOADED, see above)
+## Results: macOS arm64 host (count=10, LOADED, see above; agent rows on main 58408dc, load 40 to 46)
 
 Columns: ns/op median and `min .. max (spread)`; B/op; allocs/op; `allocB/inB` is heap
 bytes allocated per byte of input (ringfile only).
@@ -157,23 +163,23 @@ bytes allocated per byte of input (ringfile only).
 
 | benchmark | runs | ns/op median | min .. max (spread) | B/op | allocs/op |
 |---|---|---|---|---|---|
-| SignViaAgent/64B/clients=1 | 10 | 274.29 us | 233.07 us .. 322.20 us (32%) | 2.3 KiB (2312) | 35 |
-| SignViaAgent/64B/clients=8 | 10 | 136.38 us | 94.65 us .. 180.05 us (63%) | 2.3 KiB (2312) | 35 |
-| SignViaAgent/64B/clients=64 | 10 | 96.18 us | 82.82 us .. 126.96 us (46%) | 2.3 KiB (2314) | 35 |
-| SignViaAgent/1MiB/clients=1 | 10 | 10.25 ms | 7.54 ms .. 13.33 ms (56%) | 2.01 MiB (2107586) | 35 |
-| SignViaAgent/1MiB/clients=8 | 10 | 5.58 ms | 3.65 ms .. 7.50 ms (69%) | 2.01 MiB (2107552) | 35 |
-| SignViaAgent/1MiB/clients=64 | 10 | 3.46 ms | 2.95 ms .. 4.34 ms (40%) | 2.01 MiB (2107552) | 35 |
-| SignInProcess/64B | 10 | 90.98 us | 59.18 us .. 154.45 us (105%) | 0 B (0) | 0 |
-| SignInProcess/1MiB | 10 | 10.77 ms | 8.64 ms .. 12.59 ms (37%) | 0 B (0) | 0 |
-| VerifyInProcess/64B | 10 | 257.66 us | 222.65 us .. 301.22 us (30%) | 0 B (0) | 0 |
-| VerifyInProcess/1MiB | 10 | 4.82 ms | 3.78 ms .. 5.78 ms (41%) | 0 B (0) | 0 |
-| Dial | 10 | 52.84 us | 43.46 us .. 106.94 us (120%) | 2.0 KiB (2093) | 34 |
-| ReadFrame/64B | 10 | 158.8 ns | 124.5 ns .. 284.0 ns (100%) | 69 B (69) | 2 |
-| ReadFrame/64KiB | 10 | 21.84 us | 9.70 us .. 52.05 us (194%) | 64.0 KiB (65541) | 2 |
-| ReadFrame/1MiB | 10 | 150.67 us | 129.15 us .. 183.79 us (36%) | 1.00 MiB (1048582) | 2 |
-| WriteFrame/64B | 10 | 145.6 ns | 85.9 ns .. 207.8 ns (84%) | 80 B (80) | 1 |
-| WriteFrame/64KiB | 10 | 27.10 us | 13.15 us .. 36.52 us (86%) | 72.0 KiB (73728) | 1 |
-| WriteFrame/1MiB | 10 | 169.60 us | 118.36 us .. 268.13 us (88%) | 1.01 MiB (1056768) | 1 |
+| SignViaAgent/64B/clients=1 | 10 | 322.35 us | 299.80 us .. 387.73 us (27%) | 3.2 KiB (3256) | 37 |
+| SignViaAgent/64B/clients=8 | 10 | 118.75 us | 102.71 us .. 149.63 us (40%) | 3.2 KiB (3256) | 37 |
+| SignViaAgent/64B/clients=64 | 10 | 125.20 us | 98.65 us .. 223.89 us (100%) | 3.2 KiB (3258) | 37 |
+| SignViaAgent/1MiB/clients=1 | 10 | 9.02 ms | 7.93 ms .. 15.68 ms (86%) | 3.14 MiB (3287496) | 60 |
+| SignViaAgent/1MiB/clients=8 | 10 | 4.98 ms | 4.49 ms .. 6.03 ms (31%) | 3.14 MiB (3287462) | 60 |
+| SignViaAgent/1MiB/clients=64 | 10 | 3.27 ms | 2.94 ms .. 4.05 ms (34%) | 3.14 MiB (3287456) | 60 |
+| SignInProcess/64B | 10 | 96.97 us | 76.26 us .. 118.12 us (43%) | 0 B (0) | 0 |
+| SignInProcess/1MiB | 10 | 7.07 ms | 4.47 ms .. 9.95 ms (77%) | 0 B (0) | 0 |
+| VerifyInProcess/64B | 10 | 237.15 us | 202.62 us .. 266.75 us (27%) | 0 B (0) | 0 |
+| VerifyInProcess/1MiB | 10 | 3.53 ms | 2.66 ms .. 4.22 ms (44%) | 0 B (0) | 0 |
+| Dial | 10 | 111.03 us | 91.18 us .. 138.10 us (42%) | 3.1 KiB (3133) | 37 |
+| ReadFrame/64B | 10 | 1.06 us | 813.6 ns .. 1.37 us (52%) | 541 B (541) | 3 |
+| ReadFrame/64KiB | 10 | 121.99 us | 103.13 us .. 139.66 us (30%) | 134.9 KiB (138147) | 18 |
+| ReadFrame/1MiB | 10 | 1.82 ms | 1.06 ms .. 2.16 ms (60%) | 2.12 MiB (2228078) | 26 |
+| WriteFrame/64B | 10 | 104.5 ns | 88.4 ns .. 150.2 ns (59%) | 80 B (80) | 1 |
+| WriteFrame/64KiB | 10 | 51.99 us | 38.02 us .. 71.36 us (64%) | 72.0 KiB (73729) | 1 |
+| WriteFrame/1MiB | 10 | 605.83 us | 455.25 us .. 795.02 us (56%) | 1.01 MiB (1056784) | 1 |
 
 ### cmd/keystore
 
@@ -248,23 +254,23 @@ Same columns. This VM was less disturbed than the host; it is the better timing 
 
 | benchmark | runs | ns/op median | min .. max (spread) | B/op | allocs/op |
 |---|---|---|---|---|---|
-| SignViaAgent/64B/clients=1 | 5 | 322.25 us | 297.20 us .. 327.02 us (9%) | 2.1 KiB (2184) | 35 |
-| SignViaAgent/64B/clients=8 | 5 | 78.08 us | 74.70 us .. 94.67 us (26%) | 2.1 KiB (2184) | 35 |
-| SignViaAgent/64B/clients=64 | 5 | 65.17 us | 58.08 us .. 76.82 us (29%) | 2.1 KiB (2185) | 35 |
-| SignViaAgent/1MiB/clients=1 | 5 | 10.19 ms | 8.07 ms .. 12.01 ms (39%) | 2.01 MiB (2107422) | 35 |
-| SignViaAgent/1MiB/clients=8 | 5 | 3.61 ms | 3.29 ms .. 4.25 ms (27%) | 2.01 MiB (2107410) | 35 |
-| SignViaAgent/1MiB/clients=64 | 5 | 2.31 ms | 2.10 ms .. 2.93 ms (36%) | 2.01 MiB (2107419) | 35 |
-| SignInProcess/64B | 5 | 41.92 us | 41.26 us .. 42.97 us (4%) | 0 B (0) | 0 |
-| SignInProcess/1MiB | 5 | 2.90 ms | 2.85 ms .. 3.09 ms (8%) | 0 B (0) | 0 |
-| VerifyInProcess/64B | 5 | 89.81 us | 86.34 us .. 95.49 us (10%) | 0 B (0) | 0 |
-| VerifyInProcess/1MiB | 5 | 1.50 ms | 1.47 ms .. 1.54 ms (5%) | 0 B (0) | 0 |
-| Dial | 5 | 54.67 us | 47.84 us .. 70.43 us (41%) | 1.9 KiB (1965) | 34 |
-| ReadFrame/64B | 5 | 166.3 ns | 155.4 ns .. 192.6 ns (22%) | 69 B (69) | 2 |
-| ReadFrame/64KiB | 5 | 44.30 us | 24.39 us .. 46.84 us (51%) | 64.0 KiB (65542) | 2 |
-| ReadFrame/1MiB | 5 | 364.13 us | 271.81 us .. 480.36 us (57%) | 1.00 MiB (1048586) | 2 |
-| WriteFrame/64B | 5 | 69.9 ns | 53.2 ns .. 80.7 ns (39%) | 80 B (80) | 1 |
-| WriteFrame/64KiB | 5 | 26.11 us | 19.41 us .. 39.25 us (76%) | 72.0 KiB (73728) | 1 |
-| WriteFrame/1MiB | 5 | 526.41 us | 316.08 us .. 864.15 us (104%) | 1.01 MiB (1056774) | 1 |
+| SignViaAgent/64B/clients=1 | 5 | 298.46 us | 292.19 us .. 348.64 us (19%) | 3.1 KiB (3129) | 37 |
+| SignViaAgent/64B/clients=8 | 5 | 76.77 us | 71.02 us .. 93.43 us (29%) | 3.1 KiB (3128) | 37 |
+| SignViaAgent/64B/clients=64 | 5 | 69.33 us | 65.05 us .. 76.44 us (16%) | 3.1 KiB (3129) | 37 |
+| SignViaAgent/1MiB/clients=1 | 5 | 8.74 ms | 8.30 ms .. 9.69 ms (16%) | 3.14 MiB (3287333) | 60 |
+| SignViaAgent/1MiB/clients=8 | 5 | 4.21 ms | 3.97 ms .. 4.48 ms (12%) | 3.14 MiB (3287308) | 60 |
+| SignViaAgent/1MiB/clients=64 | 5 | 2.39 ms | 2.31 ms .. 2.43 ms (5%) | 3.14 MiB (3287328) | 60 |
+| SignInProcess/64B | 5 | 46.69 us | 45.19 us .. 48.67 us (7%) | 0 B (0) | 0 |
+| SignInProcess/1MiB | 5 | 3.08 ms | 3.05 ms .. 3.15 ms (3%) | 0 B (0) | 0 |
+| VerifyInProcess/64B | 5 | 101.64 us | 97.07 us .. 106.68 us (9%) | 0 B (0) | 0 |
+| VerifyInProcess/1MiB | 5 | 1.60 ms | 1.58 ms .. 1.60 ms (1%) | 0 B (0) | 0 |
+| Dial | 5 | 56.03 us | 52.48 us .. 60.16 us (14%) | 2.9 KiB (3005) | 37 |
+| ReadFrame/64B | 5 | 525.4 ns | 475.3 ns .. 592.4 ns (22%) | 541 B (541) | 3 |
+| ReadFrame/64KiB | 5 | 84.23 us | 59.73 us .. 88.98 us (35%) | 134.9 KiB (138143) | 18 |
+| ReadFrame/1MiB | 5 | 1.66 ms | 1.40 ms .. 2.03 ms (38%) | 2.12 MiB (2228038) | 26 |
+| WriteFrame/64B | 5 | 96.0 ns | 83.3 ns .. 98.8 ns (16%) | 80 B (80) | 1 |
+| WriteFrame/64KiB | 5 | 37.08 us | 30.80 us .. 46.91 us (43%) | 72.0 KiB (73728) | 1 |
+| WriteFrame/1MiB | 5 | 569.50 us | 486.43 us .. 626.62 us (25%) | 1.01 MiB (1056775) | 1 |
 
 ### cmd/keystore
 
@@ -276,8 +282,8 @@ Same columns. This VM was less disturbed than the host; it is the better timing 
 
 ## Notes
 
-**KDF dominates.** One argon2id run at the production cost is about 142 ms unloaded
-(macOS), 188 ms in the Linux VM. Every unlock is one run (`Signer`, `Secret`), `Add` to a
+**KDF dominates.** One argon2id run at the production cost is about 142 ms
+(one light-load macOS sample), 188 ms (Linux VM median). Every unlock is one run (`Signer`, `Secret`), `Add` to a
 non-empty ring is two (`checkPassphrase` unlocks the first entry, `encrypt` derives the new
 key; measured 284.8 ms against 138.2 ms for one run: ratio 2.06), and
 `ChangePassphrase` is 2N. Everything else is small next to it: AEAD open of 32 B is 0.5 us,
@@ -287,9 +293,11 @@ here suggests lowering it.
 
 **What scales linearly.**
 * `ChangePassphrase`: N=8 over N=2 is 4.23x (host, light load), 4.34x (host, loaded),
-  3.61x (Linux). At the minimum cost the ratio is lower (3.2x to 3.8x) because a constant
-  `Save` of about 9 ms is a larger share; (94.2 - 9) / (29.6 - 9) = 4.1x after removing it
-  (light-load sample). Linear in N, as designed.
+  3.61x (Linux). At the minimum cost the ratio is lower (3.2x light-load, 3.25x loaded host,
+  3.8x Linux; a skeptic remeasured 2.95x to 3.06x with a constant of about 20 ms). The
+  likely cause is a fixed per-call cost (the durable `Save`, ring reads) that is a larger
+  share when the KDF is cheap; that is a hypothesis, not isolated by a benchmark. Linear in
+  N, as designed.
 * `ringfile.Parse`: 1000 to 10000 entries costs 9.3x (5.0 ms to 46.3 ms, light-load
   sample) and 31 MiB to 2.2 MiB of allocation is 13.9x for 10x the entries. Per entry
   time is flat (about 4.6 us to 5 us), so no quadratic term was found.
@@ -297,19 +305,25 @@ here suggests lowering it.
   result; it is bounded.
 * `Marshal` costs about Parse plus an encode, because it re-Parses its own output
   (the "refuse to write an invalid ring" check): 8 to 15 allocated bytes per output byte.
-* `agent` 1 MiB sign allocates 2.0 MiB, independent of the number of clients.
+* `agent` sign allocation per op does not change with the number of clients (3256 B at
+  64 B, 3.14 MiB at 1 MiB, for 1, 8 and 64 clients), so it is per-request, not shared.
 
 **Allocation hot spots, and what is surprising.** Nothing is a defect; each is listed so
 that a change is noticed.
-* `ParseHostileEmptyObjects` (1 MiB of `{}`): 4.00 allocB/inB, 4.2 MB, 38 to 48 allocs, and
-  the number does not grow with the element count. The streaming decode fails at the first
-  element; the 4x is the json decoder buffering the one top-level value with doubling.
-  Worst case at MaxSize (16 MiB) is therefore about 64 MiB (inferred by scaling, not run).
-* 1 MiB agent sign allocates 2 MiB: the server's `readFrame` (1 MiB) plus the client's
-  `writeFrame` copying the payload to prepend the 5-byte header (1 MiB). A two-part write
-  would avoid the copy at the cost of a second syscall; not changed here.
-* `agent` sign at 64 B allocates 35 times (2.3 KiB), almost all in the net/unix-socket path
-  and `peercred`, per connection: the client dials a new connection per request.
+* `ParseHostileEmptyObjects` (1 MiB of `{}`): 4.00 allocB/inB, 4.2 MB/op, 38 to 48
+  allocs. B/op is about 4x the input and grows linearly with it; only the ratio
+  (allocB/inB) is constant. Cause of the 4x: inferred, not isolated; the json decoder
+  buffers the one top-level value with doubling is the likely reason. Scaling to MaxSize
+  (16 MiB) would give about 64 MiB (inferred by scaling, not run).
+* `agent.readFrame` now grows with the bytes that arrive (`io.ReadAll` over a limited
+  reader, by design, so a stalled peer cannot pin the claimed size): 541 B / 3 allocs at
+  64 B, about 138 KB / 18 allocs at 64 KiB, 2.23 MB (2.12x the payload) / 26 allocs at
+  1 MiB. `writeFrame` is still one payload-sized allocation (a copy to prepend the 5-byte
+  header). Together they account for the 1 MiB sign's 3.14 MiB / 60 allocs
+  (2.12 + 1.01 MiB; inferred from those parts adding up, not separately profiled).
+* `agent` sign at 64 B allocates 37 times (3.2 KiB) and `Dial` 37 times (3.1 KiB), almost
+  all in the net/unix-socket path, `peercred` and the frame reads: the client dials a new
+  connection per request (the allocation split was not profiled).
 * `keystore.List` allocates 7 times per signing entry (SPKI parse, fingerprint
   base64); 1000 entries cost 0.77 ms.
 * `Parse` of one entry allocates 4.9 KiB / 33 times: fixed json decoder overhead (inferred from the code: a magic
@@ -317,15 +331,16 @@ that a change is noticed.
 * Peak resident memory per KDF run is the `B/op` of `Derive` (64 MiB at production); it is
   freed between runs. Peak RSS was not measured (inferred from B/op).
 
-**Agent overhead against in-process signing.** `SignViaAgent` includes the client's own
-`Verify` of the reply. Using single-client medians: macOS (light-load sample) 64 B:
-112.6 us total, of which sign 20.1 us and verify 42.5 us, so about 50 us is transport
-(dial, two peer-credential checks, two frames, goroutine hand-off). 1 MiB: 3.02 ms, of
-which sign 1.53 ms and verify 0.80 ms, so about 0.7 ms is transport and copies. Linux VM
-(medians): 64 B 322 us against sign 42 us + verify 90 us, so about 190 us transport; 1 MiB
-10.2 ms against 2.9 + 1.5 ms, so about 5.8 ms transport. Concurrency scales: 64 B at 64
-clients costs 0.35x per op of the single client on the host (wall time per op, 8 cores).
-The `ed25519.Sign` baseline allocates nothing; the agent path allocates 35 times per sign.
+**Agent overhead against in-process signing** (merged main 58408dc). `SignViaAgent`
+includes the client's own `Verify` of the reply. Linux VM single-client medians (the
+less disturbed table): 64 B 298 us against sign 47 us + verify 102 us, so about 150 us is
+transport (dial, two peer-credential checks, two frames, goroutine hand-off); 1 MiB
+8.74 ms against 3.08 + 1.60 ms, so about 4.1 ms is transport and copies. The host table
+is too loaded to subtract reliably. Concurrency scales: on the VM, 64 B at 64 clients
+costs 0.23x per op of one client (69 us against 298 us, 5 vCPUs). The `ed25519.Sign`
+baseline allocates nothing; the agent path allocates 37 times (64 B) and 60 times (1 MiB)
+per sign. The earlier light-load host figure for this section was taken before the
+incremental `readFrame` and was dropped.
 
 **Method note: client counts.** `SignViaAgent/.../clients=N` runs exactly N goroutines that
 split b.N between them. `b.RunParallel` cannot run fewer goroutines than GOMAXPROCS, so "1
@@ -338,8 +353,9 @@ machine only.
 
 ## Regression notes: what a change of more than 20% in each means
 
-Allocation figures are exact: any change in B/op or allocs/op is real and worth a look; a
-change above 20% is a code change, never noise. Timing figures need an idle machine; on
+Allocation figures are stable, not exact (Parse, Derive and agent sign repeat within 1%;
+Marshal varied 3% to 5% and allocs/op by 1 to 3 between runs). Treat a change within
+about 5% (or 3 allocs) as tolerance; a change above 20% is a code change, not noise. Timing figures need an idle machine; on
 this one the spread alone exceeded 20%.
 
 | benchmark | a change above 20% means |
@@ -347,17 +363,17 @@ this one the spread alone exceeded 20%.
 | `kdf.Derive/*` | the cost constants or `x/crypto/argon2` changed. Production slower by more than 20% (without a deliberate cost change) is a dependency or toolchain regression; faster means the cost was lowered, which weakens brute-force resistance and needs a decision, not a celebration. `B/op` must equal Mem (64 MiB) plus small constants. |
 | `seal.Seal/Open` | AEAD path changed (cipher construction per call, extra copies). `allocs/op` 4 and 3 should not move. |
 | `seal.AAD` | AAD construction changed; its bytes are golden-tested, so this is performance only. 6 allocs. |
-| `ringfile.Parse` | the decode strategy changed. `allocB/inB` is the guard: about 5 to 10 for valid rings and a constant 4.0 for the hostile `{}` array; a jump (the old whole-array decode measured 378.6 in the sensitivity demo) is the amplification bug returning. Time per entry going up with ring size means a quadratic term. |
+| `ringfile.Parse` | the decode strategy changed. `allocB/inB` is the guard: about 5 to 10 for valid rings and about 4.0 for the hostile `{}` array (its B/op grows with the input; the ratio is the guard); a jump (the whole-array decode mutant measured 378.6 in the sensitivity demo) is the amplification bug returning. Time per entry going up with ring size means a quadratic term. |
 | `ringfile.Marshal` | encode or the self-check Parse changed; if it falls to about Parse alone, the self-check was dropped (a safety regression). |
 | `ringfile.Save` | an fsync was added or removed, or a temp-file/rename step changed. A big drop is suspicious (durability); a rise is more fsyncs. |
 | `ringfile.Lock` | the lock protocol changed (retry sleep, extra syscalls). |
 | `keystore.Open+List` | parse or per-entry SPKI work changed; linear in entries. |
 | `keystore.Add` | should be 2 x `Derive/production` plus Save; materially different means KDF runs were added or removed (1 would drop the passphrase check, 3 doubles the latency). |
-| `keystore.Signer` | should be 1 x `Derive` plus about 1% overhead. |
-| `keystore.ChangePassphrase` | must stay 2N KDF runs; N=8 / N=2 should stay about 4 (3.5 to 4.4). A ratio near 16 would be a quadratic bug. |
-| `agent.SignViaAgent` | transport or server loop changed. Compare with `SignInProcess + VerifyInProcess`; the gap is the agent's overhead. An allocation rise per sign is a copy added per request (1 MiB rows make it obvious: 2.01 MiB today). Throughput not improving from 1 to 8 clients means a lock was introduced. |
-| `agent.Dial` | handshake path changed (peer-credential check, public-key fetch). |
-| `agent.ReadFrame/WriteFrame` | framing allocations changed (2 and 1 allocs); the 1 MiB row should stay one payload-sized allocation. |
+| `keystore.Signer` | should be about one `Derive` run plus a small constant (unlock, parse, public-key check); a second KDF run would double it. |
+| `keystore.ChangePassphrase` | must stay 2N KDF runs; N=8 / N=2 at production cost was 3.6x to 4.3x across the three recordings (the minimum-cost ratio is lower, about 3x; do not use that band there). A ratio near 16 would be a quadratic bug. |
+| `agent.SignViaAgent` | transport or server loop changed. Compare with `SignInProcess + VerifyInProcess`; the gap is the agent's overhead. An allocation rise per sign is a copy added per request (the 1 MiB rows make it obvious: 3.14 MiB / 60 allocs today, of which about 2.12 MiB is the incremental `readFrame` and 1.01 MiB the client's `writeFrame` copy). The 64 B row is 3.2 KiB / 37 allocs. Throughput not improving from 1 to 8 clients means a lock was introduced. |
+| `agent.Dial` | handshake path changed (peer-credential check, public-key fetch). Today 3.1 KiB / 37 allocs. |
+| `agent.ReadFrame/WriteFrame` | framing allocations changed. `readFrame` grows incrementally by design: 541 B / 3 allocs (64 B), about 138 KB / 18 (64 KiB), 2.23 MB / 26 (1 MiB, 2.12x payload). A return to one payload-sized allocation would mean the peer-controlled length is trusted again (see fix L1-readframe-incremental); a rise well above 2.12x is a growth-strategy regression. `writeFrame` stays 1 alloc, payload-sized. |
 | `cmd` `RunSign/RunList` (minimum KDF) | CLI overhead other than the KDF (flag parsing, output). `RunSign` is dominated by the 8 MiB argon2 buffer even at the minimum cost, so its B/op tracks `Derive/minimum`. |
 
 ## Sensitivity demonstrations
@@ -369,12 +385,36 @@ named in each row.
 
 | deliberate regression (on the copy) | benchmark | before | after |
 |---|---|---|---|
-| `wireEntries.UnmarshalJSON` decodes the whole array into `[]wireEntry` before validating (the old behaviour) | `ringfile.ParseHostileEmptyObjects` | 4.00 allocB/inB, 4.2 MB/op, 38 to 48 allocs/op | **378.6 allocB/inB, 397 MB/op, 349,660 allocs/op** |
-| same | `ringfile.Parse/entries=1000` | 5.22 allocB/inB, 2.33 MB/op | 6.59 allocB/inB, 2.94 MB/op (moves; this is why the hostile benchmark is the real guard) |
-| one 4 KiB allocation added per sign in `Server.handle` | `agent.SignViaAgent/64B/clients=1` | 2.31 to 2.33 KiB/op, 35 allocs | **6.41 to 6.43 KiB/op, 36 allocs** (time was noise-dominated: 387 to 486 us before, 340 to 445 us after) |
-| `time.Sleep(2ms)` per sign in `Server.handle` | `agent.SignViaAgent/64B/clients=1` | 387 to 486 us/op | **2.56 to 2.76 ms/op** |
-| one extra argon2 pass (`Time+1`) in `Params.Derive` | `kdf.Derive/minimum` | 21.8 to 26.1 ms/op, 15 allocs | **55.4 to 64.7 ms/op, 23 allocs** |
-| same | `kdf.Derive/production` | 737 to 874 ms/op, 32 allocs | **965 ms to 1.27 s/op, 41 allocs** (loaded; ratio inflated by contention) |
+| the exact mutant shown below: `UnmarshalJSON` first appends every decoded `wireEntry` to a slice, then validates in a second loop | `ringfile.ParseHostileEmptyObjects` | 4.00 allocB/inB, 4.2 MB/op, 46 to 48 allocs/op | **378.6 allocB/inB, 397 MB/op, 349,665 to 349,679 allocs/op** (re-run on main 58408dc) |
+| same (earlier base) | `ringfile.Parse/entries=1000` | 5.22 allocB/inB, 2.33 MB/op | 6.59 allocB/inB, 2.94 MB/op (moves only slightly; the hostile benchmark is the real guard) |
+| one 4 KiB allocation added per sign in `Server.handle` (main 58408dc) | `agent.SignViaAgent/64B/clients=1` | 3.2 KiB/op, 37 allocs | **7.35 to 7.38 KiB/op, 38 allocs** (time noise-dominated: 300 to 388 us before, 349 to 446 us after) |
+| `time.Sleep(2ms)` per sign in `Server.handle` (main 58408dc) | `agent.SignViaAgent/64B/clients=1` | 300 to 388 us/op | **3.99 to 4.32 ms/op** (the sleep rounds up on this OS) |
+| one extra argon2 pass (`Time+1`) in `Params.Derive` (earlier base) | `kdf.Derive/minimum` | 21.8 to 26.1 ms/op, 15 allocs | **55.4 to 64.7 ms/op, 23 allocs** |
+| same (earlier base) | `kdf.Derive/production` | 737 to 874 ms/op, 32 allocs | **965 ms to 1.27 s/op, 41 allocs** (loaded; ratio inflated by contention) |
+
+The ringfile mutant, exactly:
+
+```go
+-	for i := 0; dec.More(); i++ {
+-		var we wireEntry
+-		if err := dec.Decode(&we); err != nil {
+-			return ErrBadFormat
+-		}
++	var all []wireEntry
++	for dec.More() {
++		var we wireEntry
++		if err := dec.Decode(&we); err != nil {
++			return ErrBadFormat
++		}
++		all = append(all, we)
++	}
++	for i, we := range all {
+ 		e, err := decodeEntry(we)
+```
+
+A different whole-array variant (a skeptic's) measured about 324 allocB/inB and 94 allocs;
+the number depends on how early the mutant validates, so treat "about 300 to 380" as the
+order of magnitude and the baseline of 4.0 as the guard.
 
 The "before" values in this table are from the same session and load as "after"; the
 loaded timings are therefore comparable with each other only.
@@ -383,5 +423,5 @@ loaded timings are therefore comparable with each other only.
 
 No real defect and no O(n^2) was found: `Parse`, `Marshal`, `List` and `ChangePassphrase`
 are linear at the sizes measured (1 to 10,000 entries; N=2 to 8). The Parse amplification
-fix is holding (4.0 allocB/inB on the hostile ring against 378.6 for the old decode).
+fix is holding (4.0 allocB/inB on the hostile ring against about 300 to 380 for whole-array mutants).
 No fix branch was created.
