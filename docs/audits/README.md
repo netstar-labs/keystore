@@ -27,16 +27,18 @@ reports are single-auditor reports, and their rows say what was done about them.
 | [live-integration.md](live-integration.md) | The Linux container, OpenSSL and keychain tiers |
 | [topology-integration.md](topology-integration.md) | Real processes, real filesystem: contention, SIGKILL loops, cross-uid, agent chaos, fleet |
 | [untestable-without-x.md](untestable-without-x.md) | What could not be run here, and the exact command for a human to run |
+| [audit-plan.md](audit-plan.md) | The audit's plan of record: waves, ground rules, orchestration, per-finding pipeline, status at close |
+| [audit-ledger.md](audit-ledger.md) | The running ledger kept during the audit (candidates, skeptic verdicts as reported); the findings page is the cleaned version |
 | [release-v0.2.0.md](release-v0.2.0.md) | The prepared (not tagged, not published) release: version rationale, notes with the breaking changes and their migration steps, verification block, build and publish commands, rollback |
 | [release-v0.1.0.md](release-v0.1.0.md) | Historical record of the `v0.1.0` tag, with a banner listing its stale places; superseded by the release step |
 
 ## Planned outputs not produced as separate pages, and why
 
-The audit plan is a local working file that is not committed; it listed 19 outputs for this directory.
+The audit plan ([audit-plan.md](audit-plan.md)) listed 19 outputs for this directory.
 
 | Planned name | Why not produced | Where the content is |
 |---|---|---|
-| `audit-simplify.md`, `audit-dedup.md` | the auditors' considered-and-rejected lists were kept only in the local working ledger, which is not committed; the skeptic's verdicts survive | [audit-findings.md](audit-findings.md) wave 1, rows W1-08 to W1-19 |
+| `audit-simplify.md`, `audit-dedup.md` | the auditors' considered-and-rejected lists were kept only in the running ledger ([audit-ledger.md](audit-ledger.md), as written during the audit); the skeptic's verdicts are in the findings page | [audit-findings.md](audit-findings.md) wave 1, rows W1-08 to W1-19 |
 | `audit-correctness.md`, `audit-docs.md` | same: the verdicts and outcomes are recorded, the raw auditor reports were not kept | [audit-findings.md](audit-findings.md) wave 1, rows W1-01 to W1-11 and W1-D1 to W1-D10 |
 | `security-review.md` | the five lens reports and their proof-of-concept programs were session scratch and were not kept; no CRITICAL or HIGH finding came out of them, and each finding's outcome is recorded | [audit-findings.md](audit-findings.md) "Wave 2: A3 security lenses" and the blind-implementer and interop rows |
 | `dependency-audit.md` | the A4 supply-chain report (module hygiene, `go mod verify`, licence matrix, `openpgp` reachability) was not kept; only its two CI findings (A4-1, A4-2) survive. What can be stated: `govulncheck` reports 0 affecting and one module-level advisory in an unimported package, per the L1 report and the release record | [audit-findings.md](audit-findings.md) "Wave 1b", decisions 12, 28, 30, 31 |

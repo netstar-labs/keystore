@@ -81,7 +81,7 @@ Severity is auditor -> skeptic. "Status" is what happened afterwards.
 | M15 | INFO | Doubled prefix `keystore-agent: keystore agent:` | Won't fix (cosmetic) |
 | M16 | LOW | `release-v0.1.0.md` stale in four places beyond G1. | Banner added, this branch; the supersession is **open** (O2) |
 | M17 | INFO | CI correctness unproven (`go-version-file` against `go 1.27.0` plus `toolchain go1.27.2`; CI never ran). | **Open**; first CI run |
-| M18 | INFO | Ledger W1-07 said "fix", final state is "documented, not fixed" (a failed `keygen` leaves an empty ring); the reason was only in the local ledger. | Recorded in [open-items.md](open-items.md) |
+| M18 | INFO | Ledger W1-07 said "fix", final state is "documented, not fixed" (a failed `keygen` leaves an empty ring); the reason was only in the ledger ([audit-ledger.md](audit-ledger.md)). | Recorded in [open-items.md](open-items.md) |
 | M19 | INFO | Lock-file 0600 under umask 0277 and typed-nil Signer are covered only by the green suite in the auditor's closed table. | none |
 
 ## Closed since v0.1.0 (behaviour changes on `main`, re-checked by the auditor)
@@ -128,7 +128,7 @@ rejected); library API names against scope.md; decisions 18, 19, 23, 24 and 35 w
 ## Coverage and disclosures
 
 Swept: all seven places over every yardstick row; release hygiene; every Markdown document, example
-and script, the CI workflow and build script, the L1 and A5 reports and the local ledger, the unmerged
+and script, the CI workflow and build script, the L1 and A5 reports and the ledger, the unmerged
 sync branch, the git log since the tag. Run from the docs with a temporary `HOME`: keygen, list, sign,
 verify, secrets, export guards, import, passwd, rotation, passfile modes and caps, size limits, exit
 codes, the default ring path, the agent line with `-ttl 8h -idle 30m`, a second agent, SIGHUP, `nohup`,
