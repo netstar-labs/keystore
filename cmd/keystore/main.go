@@ -38,7 +38,7 @@ const (
 )
 
 // report prints err to w and returns the process exit status: 0 for success and help,
-// exitUsage for a usage error, exitBadSignature for a signature that does not verify,
+// exitUsage for a usage error, exitBadSignature for a well-formed signature that does not verify,
 // exitFailure for anything else. Messages are cleaned: they can echo input the
 // operator's script took from elsewhere.
 func report(w io.Writer, err error) int {

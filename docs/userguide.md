@@ -223,7 +223,7 @@ usage text first and the error last.
 `0` success (and `-h`/`help`); `1` failure (a missing file, a wrong passphrase, a refused
 operation); `2` usage error; `3` a well-formed signature that does not verify (`verify`), so a script can tell a
 bad signature from a check that could not be made (an unreadable or malformed signature file,
-a missing input or key file, is `1`); `130` interrupted at a prompt. These are the
+a missing input or key file, is `1`; "well-formed" means a signature file of exactly 64 bytes, taken as a raw signature, or one that decodes from base64 to exactly 64 bytes, so a 64-byte file that is not a signature still exits `3`); `130` interrupted at a prompt. These are the
 `keystore` verbs' codes. `keystore-agent` exits 0 on a clean stop (signal or `-ttl`/`-idle` expiry,
 and `-h`) and 1 on everything else, flag errors included (it has no exit 2).
 
