@@ -28,8 +28,10 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go mod tidy && git diff --exit-code go.mod go.sum
       - run: go run "$GOVULNCHECK" ./...
-      # Library API (Keystore.Path) is legitimately unreached from the binaries.
-      - run: test -z "$(go run "$DEADCODE" ./... | grep -v 'Keystore.Path')"
+      # Legitimately unreached from the binaries: the library API (Keystore.Path) and, on Linux,
+      # checkService (only the darwin keychain implementation calls it; the first CI run caught it).
+      - run: |
+          test -z "$(go run "$DEADCODE" ./... | grep -vE 'Keystore\.Path|keychain\.go:[0-9]+:[0-9]+: unreachable func: checkService')"
       # systemd-analyze exits 0 for an unknown key or a bad value (it only warns), so the
       # output is checked too; the unit's ExecStart needs something executable to exist.
       - run: |
