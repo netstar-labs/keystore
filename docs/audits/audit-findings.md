@@ -7,7 +7,7 @@ L2 [test-ledger.md](test-ledger.md) and [mutation-hardening.md](mutation-hardeni
 [live-integration.md](live-integration.md) and [topology-integration.md](topology-integration.md), A7
 [gap-audit.md](gap-audit.md). Defects with how they were found: [defects-log.md](defects-log.md).
 
-Source: the audit's running ledger (kept locally, not committed) and the merge commits on `main`
+Source: the audit's running ledger ([audit-ledger.md](audit-ledger.md)) and the merge commits on `main`
 (`git log --merges --oneline main`), each of which carries the fix skeptic's verdict in its message.
 Labels: **[R]** reported by the ledger or a merge message and not re-run while writing this page;
 **[V]** checked while writing this page; **[I]** inferred. IDs are the ledger's: `W1-nn` from wave 1
@@ -72,7 +72,7 @@ fixed say so.
 
 Simplify and dedup (auditors A and B): the skeptic S5 ran the full suite on the batch (18/18 `-race`
 packages at the time, golden SHA-256 unchanged, staticcheck and deadcode clean) and chose the four DO
-items above. Their considered-and-rejected lists are in the ledger, not committed.
+items above. Their considered-and-rejected lists are in [the ledger](audit-ledger.md).
 
 ## Wave 2: blind implementer and interop (independent routes)
 
