@@ -9,7 +9,7 @@ import (
 
 // Signer unlocks signing key id ("" means current) with passphrase and returns it as a
 // crypto.Signer (an ed25519.PrivateKey). A wrong passphrase or a modified entry is
-// ErrBadPass.
+// ErrBadPass. On any error the returned Signer is nil.
 func (k *Keystore) Signer(id string, passphrase []byte) (crypto.Signer, error) {
 	priv, err := k.ExportPrivate(id, passphrase)
 	if err != nil {
