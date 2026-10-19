@@ -36,10 +36,10 @@ used. Another implementation must match these to read the same ring the same way
   trailing data is rejected, and a UTF-8 byte-order mark is rejected.
 - **Keys** match case-insensitively (`Magic` and `CURRENT` are read as `magic` and
   `current`); values are case-sensitive. A duplicate key silently takes the last value,
-  at the top level and inside an entry or `kdf`; for a duplicated `entries` the later array
-  replaces the earlier, but every occurrence must be valid (an invalid earlier array is
-  rejected). Entries are validated as they are read, so the first invalid one is reported.
-  Unknown fields are rejected (after that case folding).
+  at the top level and inside an entry or `kdf`, except `entries`: a second `entries` key
+  (any case, even `[]` or `null`) rejects the ring, since each occurrence costs a decoder
+  and a crafted ring of repeats was a cheap amplifier. Entries are validated as they are
+  read, so the first invalid one is reported. Unknown fields are rejected (after that case folding).
 - **`null`** is the same as absent. `current` null or missing is `""`; `entries` null or
   missing is an empty ring, so `{"magic":"keystore/v1"}` is a valid empty ring.
 - **Numbers** must be JSON integers in range: `mem` and `time` fit uint32, `par` fits

@@ -81,10 +81,10 @@ five working days.
   unreadable. This is no worse than deleting the file; write access to the ring is the
   boundary.
 - **Ring JSON is decoded with Go's `encoding/json`**, which matches keys case-insensitively
-  and lets a duplicate key win. Every entry field that protects a key is authenticated, so
-  this cannot bypass the encryption; `current`, entry order and `created` are not, and anyone
-  who can write the ring can change them anyway. Another tool might read a different value
-  than this one does.
+  and lets a duplicate key win (a repeated `entries` key is the exception: it is rejected).
+  Every entry field that protects a key is authenticated, so this cannot bypass the
+  encryption; `current`, entry order and `created` are not, and anyone who can write the
+  ring can change them anyway. Another tool might read a different value than this one does.
 - **The agent's `-ttl` and `-idle` use the process's monotonic timers**, which (as far as
   we know; not tested by suspending a machine) do not advance while the machine sleeps, so on
   a laptop an unlocked key can outlive the nominal lifetime by the time spent asleep. Stop
