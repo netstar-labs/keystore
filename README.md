@@ -36,6 +36,7 @@ handed to the process that uses it.
 - [User guide](docs/userguide.md) — verbs, passphrase sources, rotation, backup
 - [Verb reference](docs/reference.md) — generated from the command table
 - [Security policy](SECURITY.md) · [third-party notices](THIRD-PARTY-NOTICES)
+- [Audit outputs](docs/audits/README.md) — what was tested, found and fixed, and what is still open
 
 ## Install
 
@@ -50,6 +51,9 @@ byte-identical from the same clean git checkout; `--release` refuses a dirty tre
 build from one is stamped `-dirty`. The archives and the SBOM embed timestamps, so their
 checksums differ from run to run. The archives carry this README without the `docs/` tree; the
 documentation lives in the repository.
+
+`keystore version` (also `-version`; `keystore-agent -version`) prints the version. Only `build/keystore`
+stamps it: a binary from `go install` reports `dev (none)`.
 
 ## Examples
 
@@ -72,5 +76,7 @@ documentation lives in the repository.
 | `cmd/keystore/` | the CLI |
 | `cmd/keystore-agent/` | the signing agent daemon |
 | `examples/` | runnable integration scenarios |
+| `integration/` | opt-in test tiers behind build tags (`integration`, `topology`): Linux containers, OpenSSL interop, real-process topology; not part of `go test ./...` (see [live-integration](docs/audits/live-integration.md), [topology-integration](docs/audits/topology-integration.md)) |
+| `scripts/` | `topology.sh`, the driver for the real-topology tier |
 | `testdata/` | golden ring fixtures that pin the format |
 | `build/keystore` | build and packaging: `build/keystore` (linux/amd64 install package) or `build/keystore --release` (all platforms, SHA256SUMS, SPDX SBOM, notices) |

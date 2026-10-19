@@ -11,8 +11,9 @@ argv). The workload ([main.go](main.go)) opens the ring with a 0600 passfile, re
 secret with `keystore.Secret`, tags a message with HMAC-SHA256, and clears the key. The
 script checks the tag against `openssl` when available; the tests pin HMAC to RFC 4231.
 
-**Failure modes shown:** wrong passphrase, missing secret, a world-readable passfile, and a
-ring entry modified on disk (refused, never decrypted to a wrong value).
+**Failure modes shown:** by `run.sh`, a wrong passphrase and a missing secret; by the Go tests
+(`main_test.go`), also a world-readable passfile and a ring entry modified on disk (refused,
+never decrypted to a wrong value).
 
 **Does not protect against:** the workload itself being compromised while it holds the key
 (the window is start-up, but a derived key or session may live longer). Clearing a Go slice

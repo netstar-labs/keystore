@@ -1,5 +1,24 @@
 # Release v0.1.0
 
+> **Historical record of the v0.1.0 tag; superseded by L4. Do not follow it as written.** It
+> describes the tree at the local `v0.1.0` tag, which predates the audit fixes, and is left
+> unedited below. Stale items (audit A7, M16 and G1):
+>
+> 1. **"Breaking: none"** is wrong for `main`: behaviour changed after the tag (redirected
+>    `export-priv`/`export-secret` into a loose file is refused, `verify` exits 3, negative
+>    `-ttl`/`-idle` refused, no-home exits 2, empty library passphrase refused, and more; see
+>    [decisions row 42](../design/decisions.md) and [open-items.md](open-items.md)).
+> 2. **"18/18 packages"** is the count at the tag; `main` has more packages and tests
+>    ([test-ledger.md](test-ledger.md)).
+> 3. **The "Not run" list** has changed: Linux runtime, cross-uid on Linux, OpenSSL 3 interop and
+>    `systemd-analyze verify` have since been run (see [live-integration.md](live-integration.md),
+>    [topology-integration.md](topology-integration.md), [open-items.md](open-items.md)); a real
+>    systemd or launchd start, macOS cross-uid and amd64 are still not run.
+> 4. **"To publish" step 2 (`git tag -a v0.1.0 ...`) fails** with "tag already exists" against
+>    the stale local tag, which points at a commit without any audit fix and was never pushed
+>    (there is no remote). The tag must be deleted or the version changed first; that is an owner
+>    decision (see [open-items.md](open-items.md)).
+
 *Status: pre-flight complete; tagged locally (annotated). Pushing and publishing need a
 remote, which does not exist yet.*
 

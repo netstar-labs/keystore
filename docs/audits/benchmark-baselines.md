@@ -380,7 +380,7 @@ this one the spread alone exceeded 20%.
 ## Sensitivity demonstrations
 
 Each benchmark must move when the code regresses. These were done on a throwaway copy of
-the module (`/private/tmp/.../scratchpad/sens`, never the repository), reverting between
+the module (a scratch directory outside the repository), reverting between
 runs. The machine was loaded, so the timing columns are rough; the decisive column is
 named in each row.
 

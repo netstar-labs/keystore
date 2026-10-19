@@ -1,7 +1,7 @@
 # Audit A6: format and version-skew compatibility
 
 Scope: every encoded artifact keystore reads or writes whose bytes outlive the process or
-cross a version boundary. Method: handbook prompt A6. Goldens are independent of the code
+cross a version boundary. Method: a format and version-skew audit (audit A6). Goldens are independent of the code
 under test: the AAD, ring-writer and PEM expectations were built by separate Python scripts
 from `docs/format.md` and RFC 8410; the PEM, SPKI hash and a signature were cross-checked
 with OpenSSL 3.5.9 in an Alpine container; the agent frames were written from
@@ -67,7 +67,7 @@ All are now covered by the rows above. `golden.ks` itself is untouched
 5. **P reply is not authenticated by the client beyond length** (see verdict). The protocol has no version, so a future P payload change would be accepted by an old client as a different key. Fixing means a new op, not a new shape for P.
 6. **Doc: "any payload sent is ignored" for P** is verified by `TestServerWireGolden` (P with 4 payload bytes).
 7. Per-field base64 variant cannot be mutated in place: `encoding/json` hardwires `StdEncoding` for `[]byte`. The fixtures contain `+`, `/` and `=` so a change to a custom type would show; this is inferred, not mutation-tested. Signature output and fingerprint base64 variants were mutated (rows 9, 10).
-8. Phase 3 of the handbook (merge/pin calls): the AAD builder, ring marshaller, frame writer and PEM encoders each exist exactly once; there are no duplicate encoders and no name collisions. **Nothing to merge or rename.** The two `rfc*`-style constant sets in `pkg/keystore` and `cmd/keystore` tests are deliberately separate copies (a persisted-format golden must not share a definition with a sibling test), as are the two PEM literals.
+8. Merge/pin check: the AAD builder, ring marshaller, frame writer and PEM encoders each exist exactly once; there are no duplicate encoders and no name collisions. **Nothing to merge or rename.** The two `rfc*`-style constant sets in `pkg/keystore` and `cmd/keystore` tests are deliberately separate copies (a persisted-format golden must not share a definition with a sibling test), as are the two PEM literals.
 
 ## Not pinned, and why
 

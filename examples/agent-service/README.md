@@ -31,6 +31,10 @@ a workstation, prefer a TTL so an unlocked key does not outlive the session.
   the journal or in `~/Library/Logs/keystore-agent.log`. Nothing here alerts you.
 - *The agent loads its key once.* After `keystore rm` or `passwd`, restart it: until then it
   keeps signing with the key it loaded.
+- *A unit that fails with status 218/CAPABILITIES or 226/NAMESPACE* (inferred, not reproduced:
+  `systemd-analyze verify` passes on systemd 257 but the unit was never started under a real
+  systemd): the sandbox lines (`PrivateNetwork`, `ProtectSystem=strict`, `MemoryDenyWriteExecute`,
+  ...) in a `--user` unit need unprivileged user namespaces. On such a host drop those lines.
 - *A laptop that sleeps:* the agent's timers are not known to count sleep time (see
   SECURITY.md); prefer stopping the agent when you close the lid over relying on `-ttl`.
 

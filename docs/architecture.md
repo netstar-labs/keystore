@@ -5,7 +5,8 @@
 ```
 cmd/keystore        ──► pkg/keystore, pkg/agent,
                         internal/passphrase, internal/keychain, internal/term
-cmd/keystore-agent  ──► pkg/keystore, pkg/agent, internal/passphrase
+cmd/keystore-agent  ──► pkg/keystore, pkg/agent,
+                        internal/passphrase, internal/term
 pkg/agent           ──► pkg/keystore, internal/peercred
 pkg/keystore        ──► internal/ringfile, internal/seal, internal/kdf, internal/ids
 internal/ringfile   ──► internal/ids, internal/kdf, internal/seal
