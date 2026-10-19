@@ -58,6 +58,9 @@ func run(args []string) error {
 	idle := fs.Duration("idle", 30*time.Minute, "stop after this long without a request; 0 = no limit")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil // fs.Usage already printed; asking for help is not a failure
+		}
 		return err
 	}
 	if *showVersion {

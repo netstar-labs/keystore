@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"errors"
@@ -186,6 +187,28 @@ func TestServingLineAndUsageAreInertAndPresent(t *testing.T) {
 	out, _ = cmd.CombinedOutput()
 	if !strings.Contains(string(out), "Usage of keystore-agent:") || !strings.Contains(string(out), "-keystore") {
 		t.Errorf("usage text missing after a mistyped flag: %q", out)
+	}
+}
+
+// -h and -help are a request, not a mistake: usage on stderr, exit 0, no error line, as
+// every `keystore <verb> -h` and the userguide's Exit status say.
+func TestHelpFlagsExitZeroWithUsageOnly(t *testing.T) {
+	for _, flagName := range []string{"-h", "-help"} {
+		t.Run(flagName, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], flagName)
+			cmd.Env = append(os.Environ(), "KEYSTORE_AGENT_RUN_MAIN=1")
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Run(); err != nil {
+				t.Errorf("%s: %v, want exit 0\n%s", flagName, err, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "Usage of keystore-agent:") || !strings.Contains(stderr.String(), "-keystore") {
+				t.Errorf("%s: usage not on stderr: %q", flagName, stderr.String())
+			}
+			if strings.Contains(stderr.String(), "help requested") || strings.Contains(stderr.String(), "keystore-agent: flag") || stdout.Len() != 0 {
+				t.Errorf("%s: error line or stdout output: stderr %q stdout %q", flagName, stderr.String(), stdout.String())
+			}
+		})
 	}
 }
 

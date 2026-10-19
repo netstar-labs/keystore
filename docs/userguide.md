@@ -147,7 +147,7 @@ as the same user over an owner-only socket. Its passphrase comes from `-passfile
 `KEYSTORE_KEYCHAIN` is set). Prefer `-passfile`: the agent unsets the variable in its own
 environment once read, but the copy in the environment block it was started with remains
 readable by the same user (`ps eww`, `/proc/PID/environ`). The agent has no default ring:
-`-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required. The socket's directory must
+`-keystore` (or `$KEYSTORE_FILE`) and `-sock` are required; `-h` prints usage to stderr and exits 0. The socket's directory must
 already exist, be yours and mode 0700, and the whole socket path must fit the operating system's
 limit (103 bytes on macOS, 107 on Linux) or the agent refuses it, naming the limit.
 It stops — removing the socket — on SIGINT/SIGTERM/SIGHUP (there is no reload, so SIGHUP stops it, unless it was started with SIGHUP ignored, as `nohup` does, which is respected), after `-ttl` (a hard stop), or after
