@@ -354,8 +354,8 @@ func TestVerbHelpIsNotAnError(t *testing.T) {
 func TestDefaultRingResolution(t *testing.T) {
 	t.Setenv("KEYSTORE_FILE", "")
 	t.Setenv("HOME", "")
-	if got := defaultRing(); got != "default.ks" {
-		t.Errorf("no home: defaultRing() = %q, want the bare fallback", got)
+	if got := defaultRing(); got != "" {
+		t.Errorf("no home: defaultRing() = %q, want empty (callers refuse an empty ring path)", got)
 	}
 	t.Setenv("HOME", "/home/someone")
 	if got := defaultRing(); got != "/home/someone/.config/keystore/default.ks" {

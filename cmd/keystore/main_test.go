@@ -586,9 +586,11 @@ func TestNoRingPathWithoutHomeIsAUsageErrorNotACwdRing(t *testing.T) {
 		t.Errorf("sign -agent without HOME: err = %v, want a non-usage failure from the dial", err)
 	}
 	// Verbs with no ring flag are unaffected.
-	for _, verb := range []string{"verify", "keychain-set"} {
-		if _, _, err := cli(t, verb); err != nil && strings.Contains(err.Error(), "no ring path") {
-			t.Errorf("%s: %v", verb, err)
+	// (keychain-set gets an invalid service so that it is refused before it can run the
+	// real security(1) and touch the developer's login keychain.)
+	for _, args := range [][]string{{"verify"}, {"keychain-set", "-service", "-w"}} {
+		if _, _, err := cli(t, args...); err != nil && strings.Contains(err.Error(), "no ring path") {
+			t.Errorf("%s: %v", args[0], err)
 		}
 	}
 	// An explicit empty path is refused even with a home directory.
